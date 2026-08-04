@@ -1,0 +1,6 @@
+admin_a@test.com	4fc2b8d1-7ac5-4440-8f4d-e94091f3b854
+buyer_a@test.com	aa7bbe7a-3788-4301-a59e-6d15685f39bf
+buyer_b@test.com	5e547018-7258-42bb-bfd2-a7b6fe5eb079
+buyer_c@test.com	b3d15c34-08c3-4837-b717-678208f6bdfe
+client_admin_1@test.com	8beb4f07-f590-4986-9b63-192a8c36f1e7
+portal_admin@test.com	e0b02aa5-1f1e-441a-b02f-7d39f31ba3b6
