@@ -1,6 +1,7 @@
 # Ordering Portal API
 
-Backend skeleton (Phase 3). Express + `@supabase/supabase-js`.
+Backend skeleton (Phase 3) + Cin7 Core sync (Phase 4). Express +
+`@supabase/supabase-js`.
 
 ## How authorization works
 
@@ -28,12 +29,50 @@ Backend skeleton (Phase 3). Express + `@supabase/supabase-js`.
 | POST   | `/orders`              | Body: `{ store_id, notes?, status?, lines: [{sku, description?, quantity, unit_price?}] }` |
 | GET    | `/orders`              | Query: `?status=&limit=&offset=`                |
 | GET    | `/orders/:id`          | Order + its lines                               |
-| POST   | `/orders/:id/approve`  | `draft`/`pending_approval` -> `approved`         |
+| POST   | `/orders/:id/approve`  | `draft`/`pending_approval` -> `approved`, then syncs to Cin7 |
 | POST   | `/orders/:id/reject`   | Body: `{ reason? }`. -> `rejected`               |
 
-Cin7 sync is stubbed (`src/services/cin7.js`, `syncOrderToCin7`) — it just
-logs, and is called after an order is approved. Real integration is a
-separate later phase.
+## Cin7 sync (Phase 4)
+
+`src/services/cin7.js` (`syncOrderToCin7`) is called automatically after an
+order moves to `approved`. It calls Cin7 Core's **V1** API
+(`POST /Sale` — see the sourced doc links in that file's header comment)
+to create a Sale for the order, using:
+
+- `clients.cin7_customer_id` as `CustomerID` — never searches/creates a
+  customer.
+- The store's pinned `stores.cin7_address_*` fields as `ShippingAddress`,
+  sent exactly as stored — never modified or matched.
+- `orders.cin7_reference` as `CustomerReference`.
+- Per-client tax config (`clients.cin7_tax_rule`, `clients.tax_rate` —
+  added by `005_client_tax.sql`) to compute each line's `Tax`/`Total`,
+  since different clients are taxed differently and `order_lines` has no
+  tax data of its own. **`cin7_tax_rule` must exactly match a Tax Rule
+  name configured in that client's own Cin7 account, or sync fails fast
+  with a clear error rather than guessing.**
+
+On success: `orders.status = 'synced_to_cin7'`, `cin7_sales_order_id` set
+to Cin7's returned Sale `ID`, an `order_events` row logged. On failure:
+`orders.status = 'sync_failed'`, `cin7_sync_error` set, `order_events`
+logged — never left silently stuck on `approved`. Approval itself is not
+undone by a sync failure (they're logged separately); nothing retries
+automatically.
+
+**Why V1 and not V2:** V2 is Cin7's newer/recommended API and has a real
+`ExternalID` idempotency field V1 lacks, but V2's line-item schema isn't
+in the published text docs (only in a sign-in-gated API Explorer), so it
+couldn't be verified rather than guessed. V1's line fields are fully
+documented. Revisit V2 if that schema ever gets confirmed against a real
+account.
+
+**No built-in idempotency in V1.** The mitigation is re-checking
+`cin7_sales_order_id IS NULL` immediately before calling create — this
+does not fully close the gap where a request times out *after* Cin7 has
+already created the Sale but *before* the id is recorded locally.
+
+**Testing:** Cin7 Core has no sandbox mode. Use a free 14-day trial
+account's own `CIN7_ACCOUNT_ID`/`CIN7_APPLICATION_KEY` for any testing —
+never a production account.
 
 ## Running locally
 
@@ -46,7 +85,9 @@ npm start
 
 Required env vars (see `.env.example`): `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`. `PORT` is optional (defaults to 3000; Render
-sets this automatically in production).
+sets this automatically in production). `CIN7_ACCOUNT_ID` /
+`CIN7_APPLICATION_KEY` are optional locally — without them, sync attempts
+fail cleanly (`sync_failed` + a clear error) instead of crashing.
 
 ## Deploying (Render)
 
@@ -56,10 +97,11 @@ backend`). To deploy:
 1. In the Render dashboard: **New -> Blueprint**, connect this GitHub repo.
 2. Render reads `render.yaml` and creates the `ordering-portal-api` web
    service.
-3. Set the three secret env vars in the service's **Environment** tab
-   (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) —
-   they're marked `sync: false` in the blueprint so Render prompts for them
-   rather than expecting them in git.
+3. Set the secret env vars in the service's **Environment** tab
+   (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+   `CIN7_ACCOUNT_ID`, `CIN7_APPLICATION_KEY`) — they're marked `sync: false`
+   in the blueprint so Render prompts for them rather than expecting them
+   in git.
 4. Deploy. Render auto-redeploys on every push to `main` after that.
 
 Render was picked over Railway mainly because the whole service definition

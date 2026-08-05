@@ -14,3 +14,9 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: CIN7_API_BASE_URL
+        value: https://inventory.dearsystems.com/ExternalApi
+      - key: CIN7_ACCOUNT_ID
+        sync: false
+      - key: CIN7_APPLICATION_KEY
+        sync: false

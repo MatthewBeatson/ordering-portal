@@ -197,8 +197,12 @@ async function transitionOrder(req, orderId, { toStatus, eventType, extraDetail 
 
 async function approveOrder(req, orderId) {
   const updated = await transitionOrder(req, orderId, { toStatus: 'approved', eventType: 'approved' });
-  await syncOrderToCin7(updated);
-  return updated;
+  // syncOrderToCin7 never throws -- a sync failure doesn't undo the
+  // approval, which already succeeded. It's recorded on the order
+  // (status/cin7_sync_error) instead. Return its result so the response
+  // reflects the real final state (synced_to_cin7/sync_failed), not the
+  // stale 'approved' snapshot from before sync ran.
+  return (await syncOrderToCin7(updated)) || updated;
 }
 
 async function rejectOrder(req, orderId) {
