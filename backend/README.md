@@ -35,15 +35,23 @@ Backend skeleton (Phase 3) + Cin7 Core sync (Phase 4). Express +
 ## Cin7 sync (Phase 4)
 
 `src/services/cin7.js` (`syncOrderToCin7`) is called automatically after an
-order moves to `approved`. It calls Cin7 Core's **V1** API
-(`POST /Sale` — see the sourced doc links in that file's header comment)
-to create a Sale for the order, using:
+order moves to `approved`. It calls Cin7 Core's **V2** API in two steps —
+`POST /Sale` (customer/header) then `POST /Sale/Order` (lines,
+authorizes the order) — verified empirically against a real trial
+account rather than guessed (see the sourced comments in that file), since
+V2's line-item schema isn't published in Cin7's text docs. It uses:
 
 - `clients.cin7_customer_id` as `CustomerID` — never searches/creates a
   customer.
 - The store's pinned `stores.cin7_address_*` fields as `ShippingAddress`,
   sent exactly as stored — never modified or matched.
 - `orders.cin7_reference` as `CustomerReference`.
+- `orders.idempotency_key` as Cin7's `ExternalID` — a real, queryable
+  dedup key (`GET /SaleList?ExternalID=...`), confirmed working via a
+  live create-then-search test. If a sync is retried after the local DB
+  lost track of a Sale that was already created (e.g. a timeout), this
+  finds and completes/reuses it instead of creating a duplicate — closing
+  the gap V1 would have had.
 - Per-client tax config (`clients.cin7_tax_rule`, `clients.tax_rate` —
   added by `005_client_tax.sql`) to compute each line's `Tax`/`Total`,
   since different clients are taxed differently and `order_lines` has no
@@ -56,19 +64,16 @@ to Cin7's returned Sale `ID`, an `order_events` row logged. On failure:
 `orders.status = 'sync_failed'`, `cin7_sync_error` set, `order_events`
 logged — never left silently stuck on `approved`. Approval itself is not
 undone by a sync failure (they're logged separately); nothing retries
-automatically.
+automatically. If the Sale header is created but the order-lines call
+fails partway through, the header stays in Cin7 (with its `ExternalID`
+set) and the next sync attempt completes it rather than creating a
+second header.
 
-**Why V1 and not V2:** V2 is Cin7's newer/recommended API and has a real
-`ExternalID` idempotency field V1 lacks, but V2's line-item schema isn't
-in the published text docs (only in a sign-in-gated API Explorer), so it
-couldn't be verified rather than guessed. V1's line fields are fully
-documented. Revisit V2 if that schema ever gets confirmed against a real
-account.
-
-**No built-in idempotency in V1.** The mitigation is re-checking
-`cin7_sales_order_id IS NULL` immediately before calling create — this
-does not fully close the gap where a request times out *after* Cin7 has
-already created the Sale but *before* the id is recorded locally.
+**Why V2 in the end:** originally shipped as V1 because V2's line schema
+wasn't in the published docs. Once a trial account was available, the
+real schema was confirmed by reading back Cin7's own validation errors
+and a full live create → verify round trip (Sale header, order lines,
+`ExternalID` search, tax computation) rather than assumed.
 
 **Testing:** Cin7 Core has no sandbox mode. Use a free 14-day trial
 account's own `CIN7_ACCOUNT_ID`/`CIN7_APPLICATION_KEY` for any testing —
