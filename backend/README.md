@@ -21,6 +21,16 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
   the middleware from `user_store_roles` / `user_client_roles` /
   `users.is_portal_admin` — the same underlying data, just read directly
   instead of one RPC call per row.
+- `orders`/`order_lines` have **no client-side INSERT/UPDATE RLS
+  policies at all** (`009_lock_down_order_writes.sql`) — reads still go
+  through RLS (`SELECT` policies untouched), but every write, even from
+  a user who'd pass `can_approve()`, must go through this API. RLS alone
+  only scoped *who* could write, not *which columns* — a store/client
+  admin could otherwise clear their own review flag, mark their own
+  order shipped, or approve their own cancellation by calling Supabase
+  directly. The backend never relied on those policies anyway (always
+  writes via `service_role`), so this closes the gap with zero change to
+  actual behavior.
 - `/webhooks/cin7` is the one exception — Cin7 isn't a Supabase user, so
   it's authenticated with a shared bearer token instead (see below), not
   `requireAuth`.

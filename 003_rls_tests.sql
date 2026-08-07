@@ -4,6 +4,13 @@
 -- Run each block individually and read the output — step through, don't
 -- run all at once silently. Substitute in the real UUIDs from 002_seed.sql
 -- before running.
+--
+-- Since 009_lock_down_order_writes.sql, orders/order_lines have NO
+-- client-side INSERT/UPDATE policies at all -- every write, including
+-- from a legitimately authorized approver, must go through the backend
+-- API (service_role). Tests 3 and 8 assert that even an authorized
+-- approver is blocked from writing directly via RLS, not that they can
+-- succeed -- that's deliberate, not a regression.
 
 -- ============================================================
 -- TEST 1: Buyer A sees only Store A (1 store, 1 order) — unchanged
@@ -32,7 +39,8 @@ end $$;
 reset role;
 
 -- ============================================================
--- TEST 2: Buyer A CANNOT approve their own order — unchanged
+-- TEST 2: Buyer A CANNOT approve their own order (no write policy at
+-- all now, not just an unmet can_approve() check)
 -- ============================================================
 select set_config('request.jwt.claims', '{"sub":"aa7bbe7a-3788-4301-a59e-6d15685f39bf","role":"authenticated"}', true);
 set local role authenticated;
@@ -52,7 +60,10 @@ end $$;
 reset role;
 
 -- ============================================================
--- TEST 3: Admin A (store_admin) CAN approve Store A's order — unchanged
+-- TEST 3 (CHANGED by 009): even Admin A (store_admin, would pass
+-- can_approve()) CANNOT update orders directly via RLS anymore --
+-- orders has no client-side UPDATE policy at all. Confirming the order
+-- is a backend-API-only action now, not just an RLS-permission thing.
 -- ============================================================
 select set_config('request.jwt.claims', '{"sub":"4fc2b8d1-7ac5-4440-8f4d-e94091f3b854","role":"authenticated"}', true);
 set local role authenticated;
@@ -63,9 +74,9 @@ begin
     where id = '33333333-3333-3333-3333-333333333333';
 
   if (select status from orders where id = '33333333-3333-3333-3333-333333333333') = 'confirmed' then
-    raise notice 'PASS: Admin A approved the order successfully';
+    raise exception 'FAIL: Admin A was able to update the order directly via RLS -- should be backend-API-only now';
   else
-    raise exception 'FAIL: Admin A should have been able to approve this order';
+    raise notice 'PASS: direct update silently affected 0 rows, even for an authorized approver (write lockdown holds)';
   end if;
 end $$;
 
@@ -94,7 +105,10 @@ end $$;
 reset role;
 
 -- ============================================================
--- TEST 5: Buyer B cannot insert an order for Store A — unchanged
+-- TEST 5: Buyer B cannot insert an order for Store A (no INSERT
+-- policy on orders at all now, per 009 -- this would be blocked even
+-- for their own store; Store A specifically just makes the
+-- cross-store intent explicit)
 -- ============================================================
 select set_config('request.jwt.claims', '{"sub":"5e547018-7258-42bb-bfd2-a7b6fe5eb079","role":"authenticated"}', true);
 set local role authenticated;
@@ -166,9 +180,13 @@ end $$;
 reset role;
 
 -- ============================================================
--- TEST 8 (NEW): Client Admin 1 CAN approve Store B's order, despite
--- having no user_store_roles row there — proves client_admin
--- approval rights cascade to every store under their client.
+-- TEST 8 (CHANGED by 009): Client Admin 1 would have can_approve()
+-- rights on Store B (cascaded from their client role, no
+-- user_store_roles row needed) -- but CANNOT update the order
+-- directly via RLS either, same lockdown as Test 3. Approval rights
+-- are checked by the backend via RPC before it writes with
+-- service_role; they no longer double as direct table-write
+-- permission.
 -- ============================================================
 select set_config('request.jwt.claims', '{"sub":"8beb4f07-f590-4986-9b63-192a8c36f1e7","role":"authenticated"}', true);
 set local role authenticated;
@@ -179,9 +197,9 @@ begin
     where id = '77777777-7777-7777-7777-777777777777';
 
   if (select status from orders where id = '77777777-7777-7777-7777-777777777777') = 'confirmed' then
-    raise notice 'PASS: Client Admin 1 approved Store B''s order';
+    raise exception 'FAIL: Client Admin 1 was able to update the order directly via RLS -- should be backend-API-only now';
   else
-    raise exception 'FAIL: Client Admin 1 should have been able to approve Store B''s order';
+    raise notice 'PASS: direct update silently affected 0 rows, even for Client Admin 1''s cascaded approval rights';
   end if;
 end $$;
 
