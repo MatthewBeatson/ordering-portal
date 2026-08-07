@@ -19,11 +19,16 @@ async function logEvent(orderId, eventType, detail) {
 }
 
 async function findOrderByCin7SaleId(cin7SaleId) {
+  // Confirmed via a real webhook payload: Cin7's webhook events send the
+  // Sale id in UPPERCASE (e.g. SaleTaskID), while Cin7's own REST API
+  // returns it lowercase when a Sale is created (what we store in
+  // inventory_sync.external_id). Case-insensitive match rather than
+  // assuming either side is consistently cased.
   const { data: sync } = await supabaseAdmin
     .from('inventory_sync')
     .select('order_id')
     .eq('provider', 'cin7')
-    .eq('external_id', cin7SaleId)
+    .ilike('external_id', cin7SaleId)
     .maybeSingle();
   if (!sync) return null;
 

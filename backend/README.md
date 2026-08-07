@@ -114,19 +114,35 @@ credentials. Nothing else should import Cin7 internals directly.
   verification here is just comparing the `Authorization` header against
   `CIN7_WEBHOOK_TOKEN`. Confirmed via Cin7's own Webhooks reference docs,
   not guessed. Unhandled event types are accepted (200, so Cin7 doesn't
-  retry) and ignored.
+  retry) and ignored, but every call that passes auth is still logged to
+  `webhook_log` (`008_webhook_log.sql`) regardless — general delivery
+  observability, kept from diagnosing the issue below.
 - `scripts/register-cin7-webhook.js` — one-time setup script that
-  registers the `Sale/InvoiceAuthorised` webhook against a Cin7 account,
-  pointing at a given callback URL. **Requires the Automations module on
-  that Cin7 plan** — confirmed present on the trial account used for
-  testing; unconfirmed for Shonrei's production Cin7 account. If it's not
-  included, registration fails and the fallback is polling
-  `SaleList?UpdatedSince=` (not yet built).
+  registers a webhook against a Cin7 account, pointing at a given
+  callback URL. **Requires the Automations module on that Cin7 plan** —
+  confirmed present and firing correctly on the trial account used for
+  testing (see below); unconfirmed for Shonrei's production Cin7
+  account. If it's not included, registration fails and the fallback is
+  polling `SaleList?UpdatedSince=` (not yet built).
 
 `inventory_sync` (from `006_provider_agnostic_orders.sql`) is the
 provider-agnostic mapping table: `{order_id, provider, external_id,
 status, error_message, raw_payload}`. Swapping inventory providers later
 means a new adapter under `integrations/`, not a schema rebuild.
+
+**Confirmed via a full live round trip against the trial account**
+(create → confirm → sync → Cin7 pick/invoice authorised in the real UI →
+webhook received → order marked `shipped`/`auto_invoice`), after fixing
+two real bugs found only by that live test:
+1. Render's `SUPABASE_URL` env var was set to the REST path
+   (`.../rest/v1/`) instead of the bare project URL — broke every DB
+   write from the deployed service (not just webhooks). Fix: use the
+   bare `https://<ref>.supabase.co` URL, no path suffix.
+2. Cin7's webhook payload sends the Sale id in **UPPERCASE**
+   (`SaleTaskID`), while Cin7's own REST API returns it lowercase when a
+   Sale is created (what gets stored in `inventory_sync.external_id`).
+   `statusMapping.js`'s lookup is case-insensitive (`ilike`) to handle
+   this rather than assuming either side is consistently cased.
 
 **Testing:** Cin7 Core has no sandbox mode. Use a free 14-day trial
 account's own `CIN7_ACCOUNT_ID`/`CIN7_APPLICATION_KEY` (and register the
