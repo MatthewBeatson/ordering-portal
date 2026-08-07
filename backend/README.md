@@ -1,7 +1,8 @@
 # Ordering Portal API
 
-Backend skeleton (Phase 3) + Cin7 Core sync (Phase 4). Express +
-`@supabase/supabase-js`.
+Backend for the Shonrei multi-store B2B ordering portal. Express +
+`@supabase/supabase-js`. Phase 3 (skeleton) + Phase 4 (Cin7 sync) + Phase 5
+(provider-agnostic order lifecycle + review hold/shipped/cancellation).
 
 ## How authorization works
 
@@ -20,64 +21,117 @@ Backend skeleton (Phase 3) + Cin7 Core sync (Phase 4). Express +
   the middleware from `user_store_roles` / `user_client_roles` /
   `users.is_portal_admin` — the same underlying data, just read directly
   instead of one RPC call per row.
+- `/webhooks/cin7` is the one exception — Cin7 isn't a Supabase user, so
+  it's authenticated with a shared bearer token instead (see below), not
+  `requireAuth`.
+
+## Order lifecycle (Phase 5)
+
+`pending -> confirmed -> in_progress -> shipped -> delivered`, with
+`rejected` as a pre-confirm terminal state (the client-admin declined it).
+
+- **confirmed**: a client-admin/store-admin approved the order.
+- **in_progress**: entered *automatically* the moment a confirmed order
+  successfully syncs to Cin7 as a Sale — no manual "start" step, and this
+  applies to in-stock and made-to-order/backordered items alike (a
+  backorder is not an error, see `integrations/cin7/sync.js`).
+- **Review hold**: Shonrei staff can flag an order (`POST /orders/:id/flag`)
+  before it syncs; while `flagged_for_review` is true the order stays at
+  `confirmed` and the sync attempt is skipped entirely. Clearing the flag
+  (`POST /orders/:id/clear-flag`) triggers the deferred sync. This hold is
+  **internal-only** — non-staff API responses never include
+  `flagged_for_review`/`flagged_reason`/`flagged_by`/`reviewed_*` at all
+  (see `sanitizeOrder` in `services/orders.js`); they just see `confirmed`.
+- **shipped**: primarily a manual bulk action
+  (`POST /orders/bulk/ship { order_ids: [...] }`, staff-only, only from
+  `in_progress`) — `shipped_source: 'manual'`. Falls back to automatic via
+  Cin7's `Sale/InvoiceAuthorised` webhook event (`shipped_source:
+  'auto_invoice'`), but never overwrites a manual mark (Shonrei uses an
+  invoice-first flow — goods are often packed/shipped/invoiced before
+  Cin7's own stock/BOM step catches up, so Cin7 events here are treated as
+  confirmation, not real-time truth).
+- **Cancellation**: pre-sync (`pending`/`confirmed`-not-yet-synced), a
+  plain `DELETE /orders/:id` still works. Once an order has reached
+  `in_progress` it can no longer be deleted — use
+  `POST /orders/:id/request-cancellation` /
+  `POST /orders/:id/resolve-cancellation` (staff) instead. Resolving a
+  cancellation only updates our own records for now; it does not (yet)
+  void the Sale in Cin7 — that's a follow-up.
 
 ## Endpoints
 
-| Method | Path                  | Notes                                          |
-|--------|-----------------------|-------------------------------------------------|
-| GET    | `/health`             | No auth required                                |
-| POST   | `/orders`              | Body: `{ store_id, notes?, status?, lines: [{sku, description?, quantity, unit_price?}] }` |
-| GET    | `/orders`              | Query: `?status=&limit=&offset=`                |
-| GET    | `/orders/:id`          | Order + its lines                               |
-| POST   | `/orders/:id/approve`  | `draft`/`pending_approval` -> `approved`, then syncs to Cin7 |
-| POST   | `/orders/:id/reject`   | Body: `{ reason? }`. -> `rejected`               |
+| Method | Path                              | Notes                                          |
+|--------|-----------------------------------|-------------------------------------------------|
+| GET    | `/health`                         | No auth required                                |
+| POST   | `/orders`                         | Body: `{ store_id, notes?, lines: [{sku, description?, quantity, unit_price?}] }` — always created as `pending` |
+| GET    | `/orders`                         | Query: `?status=&limit=&offset=`                |
+| GET    | `/orders/:id`                     | Order + its lines                               |
+| DELETE | `/orders/:id`                     | Pre-sync only (`pending`/`confirmed`-unsynced)  |
+| POST   | `/orders/:id/confirm`             | `pending` -> `confirmed`, then attempts Cin7 sync unless flagged |
+| POST   | `/orders/:id/reject`              | Body: `{ reason? }`. `pending` -> `rejected`    |
+| POST   | `/orders/:id/flag`                | Staff only. Body: `{ reason? }`                 |
+| POST   | `/orders/:id/clear-flag`          | Staff only. Triggers deferred sync if `confirmed` |
+| POST   | `/orders/bulk/ship`               | Staff only. Body: `{ order_ids: [...] }`        |
+| POST   | `/orders/:id/request-cancellation`| Body: `{ reason? }`. Post-sync only             |
+| POST   | `/orders/:id/resolve-cancellation`| Staff only. Body: `{ approve: boolean }`        |
+| POST   | `/webhooks/cin7`                  | Cin7 callback receiver — bearer token, not a Supabase JWT |
 
-## Cin7 sync (Phase 4)
+## Cin7 integration (`src/integrations/cin7/`)
 
-`src/services/cin7.js` (`syncOrderToCin7`) is called automatically after an
-order moves to `approved`. It calls Cin7 Core's **V2** API in two steps —
-`POST /Sale` (customer/header) then `POST /Sale/Order` (lines,
-authorizes the order) — verified empirically against a real trial
-account rather than guessed (see the sourced comments in that file), since
-V2's line-item schema isn't published in Cin7's text docs. It uses:
+The **only** part of the app that ever talks to Cin7 or holds its
+credentials. Nothing else should import Cin7 internals directly.
 
-- `clients.cin7_customer_id` as `CustomerID` — never searches/creates a
-  customer.
-- The store's pinned `stores.cin7_address_*` fields as `ShippingAddress`,
-  sent exactly as stored — never modified or matched.
-- `orders.cin7_reference` as `CustomerReference`.
-- `orders.idempotency_key` as Cin7's `ExternalID` — a real, queryable
-  dedup key (`GET /SaleList?ExternalID=...`), confirmed working via a
-  live create-then-search test. If a sync is retried after the local DB
-  lost track of a Sale that was already created (e.g. a timeout), this
-  finds and completes/reuses it instead of creating a duplicate — closing
-  the gap V1 would have had.
-- Per-client tax config (`clients.cin7_tax_rule`, `clients.tax_rate` —
-  added by `005_client_tax.sql`) to compute each line's `Tax`/`Total`,
-  since different clients are taxed differently and `order_lines` has no
-  tax data of its own. **`cin7_tax_rule` must exactly match a Tax Rule
-  name configured in that client's own Cin7 account, or sync fails fast
-  with a clear error rather than guessing.**
+- `client.js` — raw HTTP calls (`POST /Sale`, `POST /Sale/Order`,
+  `GET /SaleList?ExternalID=`, `GET /Sale?ID=`). Cin7 **V2**, chosen over
+  V1 because V2's `ExternalID` field gives a real, queryable idempotency
+  mechanism (`orders.idempotency_key` -> `ExternalID`) — confirmed via a
+  live create-then-search round trip against a trial account, since V2's
+  line-item schema isn't in Cin7's published text docs (only a
+  sign-in-gated API Explorer) and had to be verified by reading back
+  Cin7's own validation errors rather than guessed.
+- `lines.js` — merges duplicate SKUs before submitting (Cin7 rejects a
+  Sale with the same SKU twice in `Lines`), and computes each line's
+  `Tax`/`Total` from the order's client's `tax_rate`/`cin7_tax_rule`
+  (`clients` columns from `005_client_tax.sql`) since `order_lines` has
+  no tax data of its own and different clients are taxed differently.
+- `sync.js` — orchestrates a sync: validates the order is ready (customer
+  id, tax rule, pinned address, has lines), skips entirely if
+  `flagged_for_review`, writes the outcome to `inventory_sync`
+  (**not** `orders.cin7_*` columns — that's the provider-agnostic split;
+  a failed sync leaves the order at `confirmed`, it does not get its own
+  Cin7-flavoured `order_status`), and flips `orders.status` to
+  `in_progress` on success. Captures `BackorderQuantity` (present in
+  Cin7's own line response) into `inventory_sync.raw_payload` for
+  visibility — never treated as a failure.
+- `statusMapping.js` — translates a Cin7 event into a provider-agnostic
+  action (currently: `Sale/InvoiceAuthorised` -> shipped-status fallback).
+  Shared by `webhook.js` and any future polling job, so there's one
+  translation implementation, not two that could drift.
+- `webhook.js` — receives Cin7's webhook POSTs at `/webhooks/cin7`. **Cin7
+  does not sign webhook payloads** — instead, when a webhook is
+  registered you choose an `ExternalAuthorizationType` (`bearerauth` used
+  here) and Cin7 attaches that exact credential to every callback, so
+  verification here is just comparing the `Authorization` header against
+  `CIN7_WEBHOOK_TOKEN`. Confirmed via Cin7's own Webhooks reference docs,
+  not guessed. Unhandled event types are accepted (200, so Cin7 doesn't
+  retry) and ignored.
+- `scripts/register-cin7-webhook.js` — one-time setup script that
+  registers the `Sale/InvoiceAuthorised` webhook against a Cin7 account,
+  pointing at a given callback URL. **Requires the Automations module on
+  that Cin7 plan** — confirmed present on the trial account used for
+  testing; unconfirmed for Shonrei's production Cin7 account. If it's not
+  included, registration fails and the fallback is polling
+  `SaleList?UpdatedSince=` (not yet built).
 
-On success: `orders.status = 'synced_to_cin7'`, `cin7_sales_order_id` set
-to Cin7's returned Sale `ID`, an `order_events` row logged. On failure:
-`orders.status = 'sync_failed'`, `cin7_sync_error` set, `order_events`
-logged — never left silently stuck on `approved`. Approval itself is not
-undone by a sync failure (they're logged separately); nothing retries
-automatically. If the Sale header is created but the order-lines call
-fails partway through, the header stays in Cin7 (with its `ExternalID`
-set) and the next sync attempt completes it rather than creating a
-second header.
-
-**Why V2 in the end:** originally shipped as V1 because V2's line schema
-wasn't in the published docs. Once a trial account was available, the
-real schema was confirmed by reading back Cin7's own validation errors
-and a full live create → verify round trip (Sale header, order lines,
-`ExternalID` search, tax computation) rather than assumed.
+`inventory_sync` (from `006_provider_agnostic_orders.sql`) is the
+provider-agnostic mapping table: `{order_id, provider, external_id,
+status, error_message, raw_payload}`. Swapping inventory providers later
+means a new adapter under `integrations/`, not a schema rebuild.
 
 **Testing:** Cin7 Core has no sandbox mode. Use a free 14-day trial
-account's own `CIN7_ACCOUNT_ID`/`CIN7_APPLICATION_KEY` for any testing —
-never a production account.
+account's own `CIN7_ACCOUNT_ID`/`CIN7_APPLICATION_KEY` (and register the
+webhook against that same account) for any testing — never a production
+account.
 
 ## Running locally
 
@@ -91,8 +145,10 @@ npm start
 Required env vars (see `.env.example`): `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`. `PORT` is optional (defaults to 3000; Render
 sets this automatically in production). `CIN7_ACCOUNT_ID` /
-`CIN7_APPLICATION_KEY` are optional locally — without them, sync attempts
-fail cleanly (`sync_failed` + a clear error) instead of crashing.
+`CIN7_APPLICATION_KEY` / `CIN7_WEBHOOK_TOKEN` are optional locally —
+without them, sync attempts fail cleanly (`inventory_sync` row with
+`status: 'failed'` + a clear error) instead of crashing, and the webhook
+receiver just rejects everything with 401.
 
 ## Deploying (Render)
 
@@ -104,11 +160,14 @@ backend`). To deploy:
    service.
 3. Set the secret env vars in the service's **Environment** tab
    (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
-   `CIN7_ACCOUNT_ID`, `CIN7_APPLICATION_KEY`) — they're marked `sync: false`
-   in the blueprint so Render prompts for them rather than expecting them
-   in git.
+   `CIN7_ACCOUNT_ID`, `CIN7_APPLICATION_KEY`, `CIN7_WEBHOOK_TOKEN`) —
+   they're marked `sync: false` in the blueprint so Render prompts for
+   them rather than expecting them in git.
 4. Deploy. Render auto-redeploys on every push to `main` after that.
+5. Once deployed, run `node scripts/register-cin7-webhook.js
+   https://<your-service>.onrender.com/webhooks/cin7` (with the same env
+   vars set) to register the webhook against that Cin7 account.
 
 Render was picked over Railway mainly because the whole service definition
 can live in git as `render.yaml` and be code-reviewed like anything else,
-and its free web service tier is a good fit for a skeleton API like this.
+and its free web service tier is a good fit for an API like this.

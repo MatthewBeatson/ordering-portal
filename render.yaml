@@ -20,3 +20,5 @@ services:
         sync: false
       - key: CIN7_APPLICATION_KEY
         sync: false
+      - key: CIN7_WEBHOOK_TOKEN
+        sync: false
