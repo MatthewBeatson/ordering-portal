@@ -14,10 +14,12 @@
 // Currently handles only Sale/InvoiceAuthorised (the event section 3 of
 // the Phase 5 spec asks for, feeding the shipped-status auto fallback).
 // Other event types are accepted (200, so Cin7 doesn't retry) but
-// otherwise ignored until there's a concrete use for them.
+// otherwise ignored until there's a concrete use for them -- every
+// call that passes auth is still logged to webhook_log regardless.
 
 const { Router } = require('express');
 const { asyncHandler } = require('../../lib/asyncHandler');
+const { supabaseAdmin } = require('../../config/supabase');
 const { applyInvoiceCreatedEvent } = require('./statusMapping');
 
 const CIN7_WEBHOOK_TOKEN = process.env.CIN7_WEBHOOK_TOKEN;
@@ -34,6 +36,13 @@ router.post(
 
     const event = req.body;
     const eventType = event?.EventType;
+
+    // Unconditional raw log of every call that passes auth, regardless
+    // of event type or whether it's handled below -- see
+    // 008_webhook_log.sql. Added to diagnose whether Cin7 delivers
+    // webhooks at all on a trial account (no delivery log exposed via
+    // Cin7's API, and no server-log access from this environment).
+    await supabaseAdmin.from('webhook_log').insert({ provider: 'cin7', event_type: eventType, raw_payload: event });
 
     switch (eventType) {
       case 'Sale/InvoiceAuthorised':
