@@ -39,10 +39,10 @@ set local role authenticated;
 
 do $$
 begin
-  update orders set status = 'approved'
+  update orders set status = 'confirmed'
     where id = '33333333-3333-3333-3333-333333333333';
 
-  if (select status from orders where id = '33333333-3333-3333-3333-333333333333') = 'approved' then
+  if (select status from orders where id = '33333333-3333-3333-3333-333333333333') = 'confirmed' then
     raise exception 'FAIL: Buyer A was able to approve their own order';
   else
     raise notice 'PASS: update silently affected 0 rows (RLS blocked it)';
@@ -59,10 +59,10 @@ set local role authenticated;
 
 do $$
 begin
-  update orders set status = 'approved', approved_by = '4fc2b8d1-7ac5-4440-8f4d-e94091f3b854'
+  update orders set status = 'confirmed', approved_by = '4fc2b8d1-7ac5-4440-8f4d-e94091f3b854'
     where id = '33333333-3333-3333-3333-333333333333';
 
-  if (select status from orders where id = '33333333-3333-3333-3333-333333333333') = 'approved' then
+  if (select status from orders where id = '33333333-3333-3333-3333-333333333333') = 'confirmed' then
     raise notice 'PASS: Admin A approved the order successfully';
   else
     raise exception 'FAIL: Admin A should have been able to approve this order';
@@ -103,7 +103,7 @@ do $$
 begin
   begin
     insert into orders (store_id, requested_by, status)
-      values ('11111111-1111-1111-1111-111111111111', '5e547018-7258-42bb-bfd2-a7b6fe5eb079', 'draft');
+      values ('11111111-1111-1111-1111-111111111111', '5e547018-7258-42bb-bfd2-a7b6fe5eb079', 'pending');
     raise exception 'FAIL: Buyer B was able to insert an order for Store A';
   exception
     when insufficient_privilege or others then
@@ -175,10 +175,10 @@ set local role authenticated;
 
 do $$
 begin
-  update orders set status = 'approved', approved_by = '8beb4f07-f590-4986-9b63-192a8c36f1e7'
+  update orders set status = 'confirmed', approved_by = '8beb4f07-f590-4986-9b63-192a8c36f1e7'
     where id = '77777777-7777-7777-7777-777777777777';
 
-  if (select status from orders where id = '77777777-7777-7777-7777-777777777777') = 'approved' then
+  if (select status from orders where id = '77777777-7777-7777-7777-777777777777') = 'confirmed' then
     raise notice 'PASS: Client Admin 1 approved Store B''s order';
   else
     raise exception 'FAIL: Client Admin 1 should have been able to approve Store B''s order';

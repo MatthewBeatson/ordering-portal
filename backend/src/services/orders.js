@@ -1,14 +1,32 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
-const { syncOrderToCin7 } = require('./cin7');
+const { syncOrderToCin7 } = require('../integrations/cin7/sync');
 
-const APPROVABLE_STATUSES = ['draft', 'pending_approval'];
+// pending -> confirmed -> in_progress -> shipped -> delivered, with
+// 'rejected' as a pre-confirm terminal state. 'in_progress' is entered
+// automatically the moment a confirmed order successfully syncs to
+// Cin7 (see integrations/cin7/sync.js) -- there's no manual "start"
+// step for the normal case, backorders included.
+const PRE_CONFIRM_STATUSES = ['pending'];
+const FLAGGABLE_STATUSES = ['pending', 'confirmed'];
+const PRE_SYNC_STATUSES = ['pending', 'confirmed']; // not yet reached in_progress
 
-// Calls the same has_store_access()/can_approve() Postgres functions the
-// RLS policies use, via RPC on a client scoped to the requesting user's own
-// JWT (so auth.uid() resolves correctly). This is deliberate: one
-// authorization implementation (in SQL), not a second copy in JS that could
-// silently drift from what RLS actually enforces.
+// flagged_for_review/flagged_reason/flagged_by/reviewed_* are an
+// internal Shonrei-staff-only hold -- client-facing views must never
+// see them; they just see 'confirmed'.
+function sanitizeOrder(order, isPortalAdmin) {
+  if (!order || isPortalAdmin) return order;
+  // eslint-disable-next-line no-unused-vars
+  const { flagged_for_review, flagged_reason, flagged_by, reviewed_by, reviewed_at, ...rest } = order;
+  return rest;
+}
+
+function requireStaff(req) {
+  if (!req.roles.isPortalAdmin) {
+    throw new ApiError(403, 'This action is restricted to Shonrei staff');
+  }
+}
+
 async function checkStoreAccess(supabaseUser, storeId) {
   const { data, error } = await supabaseUser.rpc('has_store_access', { target_store_id: storeId });
   if (error) throw new ApiError(500, 'Failed to check store access', error.message);
@@ -33,11 +51,6 @@ function validateCreateInput(body) {
   const storeId = body?.store_id;
   if (!storeId || typeof storeId !== 'string') errors.push('store_id is required');
 
-  const status = body?.status ?? 'pending_approval';
-  if (!APPROVABLE_STATUSES.includes(status)) {
-    errors.push(`status must be one of: ${APPROVABLE_STATUSES.join(', ')}`);
-  }
-
   const lines = body?.lines;
   if (!Array.isArray(lines) || lines.length === 0) {
     errors.push('lines must be a non-empty array');
@@ -57,14 +70,28 @@ function validateCreateInput(body) {
 
   if (errors.length > 0) throw new ApiError(400, 'Invalid order payload', errors);
 
-  return { storeId, status, notes: body.notes ?? null, lines };
+  return { storeId, notes: body.notes ?? null, lines };
+}
+
+async function fetchOrder(orderId) {
+  const { data, error } = await supabaseAdmin.from('orders').select('*').eq('id', orderId).maybeSingle();
+  if (error) {
+    if (isInvalidUuidError(error)) throw new ApiError(400, 'Invalid order id');
+    throw new ApiError(500, 'Failed to fetch order', error.message);
+  }
+  if (!data) throw new ApiError(404, 'Order not found');
+  return data;
+}
+
+async function logEvent(orderId, actorId, eventType, detail) {
+  await supabaseAdmin.from('order_events').insert({ order_id: orderId, actor_id: actorId, event_type: eventType, detail });
 }
 
 async function createOrder(req) {
-  const { storeId, status, notes, lines } = validateCreateInput(req.body);
+  const { storeId, notes, lines } = validateCreateInput(req.body);
 
-  // Never trust a client-supplied store_id blindly — check it against this
-  // user's actual roles before touching the database.
+  // Never trust a client-supplied store_id blindly -- check it against
+  // this user's actual roles before touching the database.
   const hasAccess = await checkStoreAccess(req.supabaseUser, storeId);
   if (!hasAccess) {
     throw new ApiError(403, 'You do not have access to this store');
@@ -72,7 +99,7 @@ async function createOrder(req) {
 
   const { data: order, error: orderErr } = await supabaseAdmin
     .from('orders')
-    .insert({ store_id: storeId, requested_by: req.user.id, status, notes })
+    .insert({ store_id: storeId, requested_by: req.user.id, status: 'pending', notes })
     .select()
     .single();
 
@@ -100,11 +127,9 @@ async function createOrder(req) {
     throw new ApiError(500, 'Failed to create order lines', linesErr.message);
   }
 
-  await supabaseAdmin
-    .from('order_events')
-    .insert({ order_id: order.id, actor_id: req.user.id, event_type: 'created', detail: { status } });
+  await logEvent(order.id, req.user.id, 'created', { status: 'pending' });
 
-  return { ...order, order_lines: orderLines };
+  return { ...sanitizeOrder(order, req.roles.isPortalAdmin), order_lines: orderLines };
 }
 
 async function listOrders(req) {
@@ -131,17 +156,11 @@ async function listOrders(req) {
   const { data, error, count } = await query;
   if (error) throw new ApiError(500, 'Failed to list orders', error.message);
 
-  return { orders: data, total: count, limit, offset };
+  return { orders: data.map((o) => sanitizeOrder(o, req.roles.isPortalAdmin)), total: count, limit, offset };
 }
 
 async function getOrder(req, orderId) {
-  const { data: order, error } = await supabaseAdmin.from('orders').select('*').eq('id', orderId).maybeSingle();
-
-  if (error) {
-    if (isInvalidUuidError(error)) throw new ApiError(400, 'Invalid order id');
-    throw new ApiError(500, 'Failed to fetch order', error.message);
-  }
-  if (!order) throw new ApiError(404, 'Order not found');
+  const order = await fetchOrder(orderId);
 
   const hasAccess = await checkStoreAccess(req.supabaseUser, order.store_id);
   if (!hasAccess) throw new ApiError(403, 'You do not have access to this order');
@@ -151,63 +170,258 @@ async function getOrder(req, orderId) {
     .select('*')
     .eq('order_id', orderId)
     .order('created_at', { ascending: true });
-
   if (linesErr) throw new ApiError(500, 'Failed to fetch order lines', linesErr.message);
 
-  return { ...order, order_lines: lines };
+  return { ...sanitizeOrder(order, req.roles.isPortalAdmin), order_lines: lines };
 }
 
-async function transitionOrder(req, orderId, { toStatus, eventType, extraDetail }) {
-  const { data: order, error } = await supabaseAdmin.from('orders').select('*').eq('id', orderId).maybeSingle();
+// pending -> confirmed. "Confirmed" = a client-admin has approved the
+// order on their side. Triggers a Cin7 sync attempt immediately unless
+// the order is flagged for review (integrations/cin7/sync.js checks
+// the flag itself and skips if set).
+async function confirmOrder(req, orderId) {
+  const order = await fetchOrder(orderId);
 
-  if (error) {
-    if (isInvalidUuidError(error)) throw new ApiError(400, 'Invalid order id');
-    throw new ApiError(500, 'Failed to fetch order', error.message);
-  }
-  if (!order) throw new ApiError(404, 'Order not found');
-
-  if (!APPROVABLE_STATUSES.includes(order.status)) {
-    throw new ApiError(409, `Order cannot transition to ${toStatus} from its current status (${order.status})`);
+  if (!PRE_CONFIRM_STATUSES.includes(order.status)) {
+    throw new ApiError(409, `Order cannot be confirmed from its current status (${order.status})`);
   }
 
   const canApprove = await checkCanApprove(req.supabaseUser, order.store_id);
   if (!canApprove) throw new ApiError(403, 'You do not have approval rights for this store');
 
-  const updatePayload = { status: toStatus };
-  if (toStatus === 'approved') updatePayload.approved_by = req.user.id;
-
   const { data: updated, error: updateErr } = await supabaseAdmin
     .from('orders')
-    .update(updatePayload)
+    .update({ status: 'confirmed', approved_by: req.user.id })
     .eq('id', orderId)
     .select()
     .single();
+  if (updateErr) throw new ApiError(500, 'Failed to confirm order', updateErr.message);
 
-  if (updateErr) throw new ApiError(500, `Failed to update order`, updateErr.message);
+  await logEvent(orderId, req.user.id, 'confirmed', null);
 
-  await supabaseAdmin.from('order_events').insert({
-    order_id: orderId,
-    actor_id: req.user.id,
-    event_type: eventType,
-    detail: extraDetail ?? null,
-  });
-
-  return updated;
+  const synced = await syncOrderToCin7(updated);
+  return sanitizeOrder(synced || updated, req.roles.isPortalAdmin);
 }
 
-async function approveOrder(req, orderId) {
-  const updated = await transitionOrder(req, orderId, { toStatus: 'approved', eventType: 'approved' });
-  // syncOrderToCin7 never throws -- a sync failure doesn't undo the
-  // approval, which already succeeded. It's recorded on the order
-  // (status/cin7_sync_error) instead. Return its result so the response
-  // reflects the real final state (synced_to_cin7/sync_failed), not the
-  // stale 'approved' snapshot from before sync ran.
-  return (await syncOrderToCin7(updated)) || updated;
-}
-
+// Pre-confirm decline by the approving client-admin/store-admin. Same
+// access check and precondition as confirming, different outcome.
 async function rejectOrder(req, orderId) {
+  const order = await fetchOrder(orderId);
+
+  if (!PRE_CONFIRM_STATUSES.includes(order.status)) {
+    throw new ApiError(409, `Order cannot be rejected from its current status (${order.status})`);
+  }
+
+  const canApprove = await checkCanApprove(req.supabaseUser, order.store_id);
+  if (!canApprove) throw new ApiError(403, 'You do not have approval rights for this store');
+
   const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
-  return transitionOrder(req, orderId, { toStatus: 'rejected', eventType: 'rejected', extraDetail: reason ? { reason } : null });
+
+  const { data: updated, error: updateErr } = await supabaseAdmin
+    .from('orders')
+    .update({ status: 'rejected' })
+    .eq('id', orderId)
+    .select()
+    .single();
+  if (updateErr) throw new ApiError(500, 'Failed to reject order', updateErr.message);
+
+  await logEvent(orderId, req.user.id, 'rejected', reason ? { reason } : null);
+
+  return sanitizeOrder(updated, req.roles.isPortalAdmin);
 }
 
-module.exports = { createOrder, listOrders, getOrder, approveOrder, rejectOrder };
+// Manual "Flag for Review" -- Shonrei staff only, on any order before
+// it's synced. Not a rules engine, just a hold a human sets/clears.
+async function flagOrder(req, orderId) {
+  requireStaff(req);
+  const order = await fetchOrder(orderId);
+
+  if (!FLAGGABLE_STATUSES.includes(order.status)) {
+    throw new ApiError(409, `Order cannot be flagged from its current status (${order.status})`);
+  }
+
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('orders')
+    .update({ flagged_for_review: true, flagged_reason: reason, flagged_by: req.user.id, reviewed_by: null, reviewed_at: null })
+    .eq('id', orderId)
+    .select()
+    .single();
+  if (error) throw new ApiError(500, 'Failed to flag order', error.message);
+
+  await logEvent(orderId, req.user.id, 'flagged_for_review', reason ? { reason } : null);
+
+  return sanitizeOrder(updated, req.roles.isPortalAdmin);
+}
+
+// Clears the hold. If the order was already confirmed (i.e. it would
+// have synced already if not for the flag), this triggers the
+// deferred sync attempt -- mirrors how confirming triggers it normally.
+async function clearFlag(req, orderId) {
+  requireStaff(req);
+  const order = await fetchOrder(orderId);
+
+  if (!order.flagged_for_review) {
+    throw new ApiError(409, 'Order is not currently flagged for review');
+  }
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('orders')
+    .update({ flagged_for_review: false, reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+    .eq('id', orderId)
+    .select()
+    .single();
+  if (error) throw new ApiError(500, 'Failed to clear review flag', error.message);
+
+  await logEvent(orderId, req.user.id, 'review_cleared', null);
+
+  if (updated.status === 'confirmed') {
+    const synced = await syncOrderToCin7(updated);
+    return sanitizeOrder(synced || updated, req.roles.isPortalAdmin);
+  }
+
+  return sanitizeOrder(updated, req.roles.isPortalAdmin);
+}
+
+// Bulk "Mark as Shipped" -- Shonrei staff only, only from in_progress.
+// Primary path for the shipped status (see integrations/cin7/statusMapping.js
+// for the auto_invoice fallback).
+async function markShipped(req) {
+  requireStaff(req);
+  const orderIds = req.body?.order_ids;
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    throw new ApiError(400, 'order_ids must be a non-empty array');
+  }
+
+  const { data: orders, error } = await supabaseAdmin.from('orders').select('*').in('id', orderIds);
+  if (error) throw new ApiError(500, 'Failed to load orders', error.message);
+
+  const shippable = orders.filter((o) => o.status === 'in_progress');
+  const skipped = orders.filter((o) => o.status !== 'in_progress').map((o) => ({ id: o.id, status: o.status }));
+  const notFound = orderIds.filter((id) => !orders.some((o) => o.id === id));
+
+  if (shippable.length === 0) {
+    return { shipped: [], skipped, not_found: notFound };
+  }
+
+  const shippedAt = new Date().toISOString();
+  const { data: updated, error: updateErr } = await supabaseAdmin
+    .from('orders')
+    .update({ status: 'shipped', shipped_at: shippedAt, shipped_source: 'manual', shipped_by: req.user.id })
+    .in(
+      'id',
+      shippable.map((o) => o.id)
+    )
+    .select();
+  if (updateErr) throw new ApiError(500, 'Failed to mark orders shipped', updateErr.message);
+
+  await Promise.all(shippable.map((o) => logEvent(o.id, req.user.id, 'shipped', { source: 'manual' })));
+
+  return {
+    shipped: updated.map((o) => sanitizeOrder(o, req.roles.isPortalAdmin)),
+    skipped,
+    not_found: notFound,
+  };
+}
+
+// Post-confirm/post-sync cancellation request. Pre-sync self-service
+// cancel is a plain delete (see deleteOrder) -- this is for orders
+// already past that point, where an admin must not be able to just
+// delete them.
+async function requestCancellation(req, orderId) {
+  const order = await fetchOrder(orderId);
+
+  const hasAccess = await checkStoreAccess(req.supabaseUser, order.store_id);
+  if (!hasAccess) throw new ApiError(403, 'You do not have access to this order');
+
+  if (PRE_SYNC_STATUSES.includes(order.status)) {
+    throw new ApiError(409, 'This order has not synced yet -- delete it directly instead of requesting cancellation');
+  }
+  if (order.cancellation_status === 'requested') {
+    throw new ApiError(409, 'A cancellation request is already pending for this order');
+  }
+
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason : null;
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('orders')
+    .update({
+      cancellation_status: 'requested',
+      cancellation_requested_at: new Date().toISOString(),
+      cancellation_requested_by: req.user.id,
+      cancellation_reason: reason,
+      cancellation_resolved_at: null,
+      cancellation_resolved_by: null,
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
+  if (error) throw new ApiError(500, 'Failed to request cancellation', error.message);
+
+  await logEvent(orderId, req.user.id, 'cancellation_requested', reason ? { reason } : null);
+
+  return sanitizeOrder(updated, req.roles.isPortalAdmin);
+}
+
+// Shonrei staff review of a cancellation request. Approving here only
+// updates our own records -- it does not (yet) void the Sale in Cin7;
+// that's a follow-up, not built in this pass.
+async function resolveCancellation(req, orderId) {
+  requireStaff(req);
+  const order = await fetchOrder(orderId);
+
+  if (order.cancellation_status !== 'requested') {
+    throw new ApiError(409, 'Order has no pending cancellation request');
+  }
+
+  const approve = req.body?.approve;
+  if (typeof approve !== 'boolean') throw new ApiError(400, 'approve (boolean) is required');
+
+  const { data: updated, error } = await supabaseAdmin
+    .from('orders')
+    .update({
+      cancellation_status: approve ? 'approved' : 'denied',
+      cancellation_resolved_at: new Date().toISOString(),
+      cancellation_resolved_by: req.user.id,
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
+  if (error) throw new ApiError(500, 'Failed to resolve cancellation', error.message);
+
+  await logEvent(orderId, req.user.id, approve ? 'cancellation_approved' : 'cancellation_denied', null);
+
+  return sanitizeOrder(updated, req.roles.isPortalAdmin);
+}
+
+// Pre-sync self-service delete. Once an order has reached in_progress
+// (i.e. it's synced to Cin7) this must be refused -- use
+// requestCancellation instead.
+async function deleteOrder(req, orderId) {
+  const order = await fetchOrder(orderId);
+
+  const hasAccess = await checkStoreAccess(req.supabaseUser, order.store_id);
+  if (!hasAccess) throw new ApiError(403, 'You do not have access to this order');
+
+  if (!PRE_SYNC_STATUSES.includes(order.status)) {
+    throw new ApiError(409, 'This order has already synced -- request a cancellation instead of deleting it');
+  }
+
+  const { error } = await supabaseAdmin.from('orders').delete().eq('id', orderId);
+  if (error) throw new ApiError(500, 'Failed to delete order', error.message);
+}
+
+module.exports = {
+  createOrder,
+  listOrders,
+  getOrder,
+  confirmOrder,
+  rejectOrder,
+  flagOrder,
+  clearFlag,
+  markShipped,
+  requestCancellation,
+  resolveCancellation,
+  deleteOrder,
+};

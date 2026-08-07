@@ -6,9 +6,9 @@
 -- applied. If you're re-running this on a DB seeded by the OLD version
 -- of this file, clear it first:
 --
---   truncate table order_events, order_lines, orders, user_client_roles,
---     user_store_roles, order_batches, product_images, products,
---     stores, clients, users cascade;
+--   truncate table order_events, inventory_sync, order_lines, orders,
+--     user_client_roles, user_store_roles, order_batches, product_images,
+--     products, stores, clients, users cascade;
 --
 -- Before running: create these 6 auth users via the dashboard
 -- (Authentication -> Users -> Add user) and substitute their real
@@ -83,11 +83,11 @@ insert into user_client_roles (user_id, client_id, role) values
 -- ============================================================
 insert into orders (id, store_id, requested_by, status) values
   ('33333333-3333-3333-3333-333333333333',
-   '11111111-1111-1111-1111-111111111111', 'aa7bbe7a-3788-4301-a59e-6d15685f39bf', 'pending_approval'),
+   '11111111-1111-1111-1111-111111111111', 'aa7bbe7a-3788-4301-a59e-6d15685f39bf', 'pending'),
   ('77777777-7777-7777-7777-777777777777',
-   '22222222-2222-2222-2222-222222222222', '5e547018-7258-42bb-bfd2-a7b6fe5eb079', 'pending_approval'),
+   '22222222-2222-2222-2222-222222222222', '5e547018-7258-42bb-bfd2-a7b6fe5eb079', 'pending'),
   ('88888888-8888-8888-8888-888888888888',
-   '66666666-6666-6666-6666-666666666666', 'b3d15c34-08c3-4837-b717-678208f6bdfe', 'pending_approval');
+   '66666666-6666-6666-6666-666666666666', 'b3d15c34-08c3-4837-b717-678208f6bdfe', 'pending');
 
 insert into order_lines (order_id, sku, description, quantity, unit_price) values
   ('33333333-3333-3333-3333-333333333333', 'SKU-001', 'Test widget', 5, 12.50),
