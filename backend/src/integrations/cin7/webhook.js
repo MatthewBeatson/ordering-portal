@@ -42,7 +42,12 @@ router.post(
     // 008_webhook_log.sql. Added to diagnose whether Cin7 delivers
     // webhooks at all on a trial account (no delivery log exposed via
     // Cin7's API, and no server-log access from this environment).
-    await supabaseAdmin.from('webhook_log').insert({ provider: 'cin7', event_type: eventType, raw_payload: event });
+    const logResult = await supabaseAdmin.from('webhook_log').insert({ provider: 'cin7', event_type: eventType, raw_payload: event });
+    if (logResult.error) {
+      // TEMP: surfaced in the response body itself for diagnosis, since
+      // this dev environment has no access to Render's server logs.
+      console.error('[cin7 webhook] failed to write webhook_log:', logResult.error.message);
+    }
 
     switch (eventType) {
       case 'Sale/InvoiceAuthorised':
@@ -61,7 +66,7 @@ router.post(
 
     // Cin7 expects 200 regardless, including for event types we don't
     // act on -- returning an error here would just cause retries.
-    res.status(200).json({ received: true });
+    res.status(200).json({ received: true, _debug_log_error: logResult.error?.message || null });
   })
 );
 
