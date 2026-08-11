@@ -81,6 +81,15 @@ async function createSaleOrderLines(saleId, saleLines) {
   });
 }
 
+// GET /Product, paginated (Total/Page/Products shape) -- confirmed
+// directly against the trial account. Field names used by
+// productSync.js (ID, SKU, Name, Category, Description/
+// ShortDescription, PriceTier1..10) come from that same real response,
+// not guessed.
+async function fetchProductsPage(page, limit) {
+  return cin7Fetch('GET', `/Product?page=${page}&limit=${limit}`);
+}
+
 module.exports = {
   isConfigured,
   cin7Fetch,
@@ -89,4 +98,5 @@ module.exports = {
   fetchFullSale,
   createSaleHeader,
   createSaleOrderLines,
+  fetchProductsPage,
 };
