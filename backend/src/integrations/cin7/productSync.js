@@ -1,9 +1,9 @@
 // Mirrors every product from Cin7 into our own `products` table.
 // Deliberately syncs everything, not a curated subset -- curation
-// happens afterward via products.added_to_portal (011), set by staff
-// through the add-to-portal endpoints in services/products.js, not by
-// this job. That keeps "what exists" (Cin7's problem) separate from
-// "what's shown on the portal" (Shonrei's problem).
+// happens afterward per-client via client_portal_products (013), set by
+// staff through the add-to-portal endpoints in services/products.js,
+// not by this job. That keeps "what exists" (Cin7's problem) separate
+// from "what's shown on which client's portal" (Shonrei's problem).
 //
 // Field names (ID, SKU, Name, Category, Description/ShortDescription,
 // PriceTier1..10) are taken from a real GET /Product response captured

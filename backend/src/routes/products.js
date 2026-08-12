@@ -26,7 +26,7 @@ router.post(
 router.post(
   '/:id/add-to-portal',
   asyncHandler(async (req, res) => {
-    const product = await productsService.addToPortal(req, req.params.id);
+    const product = await productsService.addToPortal(req, req.params.id, req.body?.client_id);
     res.json(product);
   })
 );
@@ -34,7 +34,7 @@ router.post(
 router.post(
   '/:id/remove-from-portal',
   asyncHandler(async (req, res) => {
-    const product = await productsService.removeFromPortal(req, req.params.id);
+    const product = await productsService.removeFromPortal(req, req.params.id, req.body?.client_id);
     res.json(product);
   })
 );

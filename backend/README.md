@@ -84,7 +84,33 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
 | POST   | `/orders/bulk/ship`               | Staff only. Body: `{ order_ids: [...] }`        |
 | POST   | `/orders/:id/request-cancellation`| Body: `{ reason? }`. Post-sync only             |
 | POST   | `/orders/:id/resolve-cancellation`| Staff only. Body: `{ approve: boolean }`        |
+| POST   | `/products/sync`                  | Staff only. Re-mirrors every product from Cin7 |
+| POST   | `/products/:id/add-to-portal`     | Staff only. Body: `{ client_id }`. Per-client — see below |
+| POST   | `/products/:id/remove-from-portal`| Staff only. Body: `{ client_id }`               |
+| POST   | `/products/bulk/add-to-portal`    | Staff only. Body: `{ product_ids: [...], client_id }` |
 | POST   | `/webhooks/cin7`                  | Cin7 callback receiver — bearer token, not a Supabase JWT |
+
+## Product curation (`src/services/products.js`)
+
+Every product from Cin7 gets mirrored into `products` unconditionally
+(`POST /products/sync`) — deliberately not curated at sync time, since
+"what exists in Cin7" and "what's shown on a given client's portal" are
+separate concerns (confirmed with the user 2026-08-12: with ~5,000
+products in Cin7 and only ~500–1,000 ever curated, and different large
+clients needing genuinely different product ranges, portal visibility
+had to be per-client, not one global flag).
+
+`client_portal_products` (`013_per_client_portal_products.sql`) is the
+source of truth for visibility — a row means "this product shows up on
+this client's Catalog." A buyer's Supabase reads are scoped by RLS via
+`product_visible_to_user()`, which checks whether *any* client the
+signed-in user belongs to has curated that product; portal admins
+bypass this and see everything (needed for the curation search, which
+has to search the full Cin7 mirror to find products nobody's curated
+yet, not just an already-curated subset). All three write endpoints
+above require `client_id` and are staff-only, same lockdown pattern as
+`orders`/`order_lines` — no client-side INSERT/UPDATE/DELETE policy on
+`client_portal_products` at all.
 
 ## Cin7 integration (`src/integrations/cin7/`)
 
