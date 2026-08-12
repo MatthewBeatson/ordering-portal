@@ -23,6 +23,12 @@
   --danger-muted: #fdecec;
   --success: #16a34a;
   --success-muted: #eaf7ee;
+  --warning: #b45309;
+  --warning-muted: #fef3e2;
+  --purple: #6d28d9;
+  --purple-muted: #f1ebfd;
+  --teal: #0f766e;
+  --teal-muted: #e3f7f5;
   --radius: 0.5rem;
 }
 

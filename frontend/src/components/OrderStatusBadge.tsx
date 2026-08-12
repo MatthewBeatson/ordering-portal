@@ -10,12 +10,12 @@ const LABELS: Record<OrderStatus, string> = {
   rejected: 'Rejected',
 };
 
-const TONES: Record<OrderStatus, 'default' | 'accent' | 'success' | 'danger' | 'muted'> = {
-  pending: 'muted',
+const TONES: Record<OrderStatus, 'default' | 'accent' | 'success' | 'danger' | 'muted' | 'warning' | 'purple' | 'teal'> = {
+  pending: 'warning',
   confirmed: 'accent',
-  in_progress: 'accent',
+  in_progress: 'purple',
   shipped: 'success',
-  delivered: 'success',
+  delivered: 'teal',
   rejected: 'danger',
 };
 
