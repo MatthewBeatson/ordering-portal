@@ -179,7 +179,7 @@ export function QuickOrderBar({ products, clientSkuByProduct, tierNumber }: Quic
             className="h-8 w-full border-none bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]"
           />
           {matches.length > 0 && (
-            <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] shadow-lg">
+            <ul className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] shadow-lg">
               {matches.map((p, i) => (
                 <li
                   key={p.id}
