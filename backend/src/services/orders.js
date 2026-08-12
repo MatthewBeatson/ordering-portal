@@ -156,7 +156,31 @@ async function listOrders(req) {
   const { data, error, count } = await query;
   if (error) throw new ApiError(500, 'Failed to list orders', error.message);
 
-  return { orders: data.map((o) => sanitizeOrder(o, req.roles.isPortalAdmin)), total: count, limit, offset };
+  // Staff-only, same boundary as getOrder's inventory_sync -- one
+  // batched query for the whole page rather than one per row.
+  let syncByOrderId = new Map();
+  if (req.roles.isPortalAdmin && data.length > 0) {
+    const { data: syncs } = await supabaseAdmin
+      .from('inventory_sync')
+      .select('order_id, provider, status, external_id, error_message, synced_at')
+      .eq('provider', 'cin7')
+      .in(
+        'order_id',
+        data.map((o) => o.id)
+      );
+    syncByOrderId = new Map((syncs || []).map((s) => [s.order_id, s]));
+  }
+
+  return {
+    orders: data.map((o) => {
+      const sanitized = sanitizeOrder(o, req.roles.isPortalAdmin);
+      if (req.roles.isPortalAdmin) sanitized.inventory_sync = syncByOrderId.get(o.id) || null;
+      return sanitized;
+    }),
+    total: count,
+    limit,
+    offset,
+  };
 }
 
 async function getOrder(req, orderId) {
@@ -232,6 +256,55 @@ async function confirmOrder(req, orderId) {
 
   const synced = await syncOrderToCin7(updated);
   return sanitizeOrder(synced || updated, req.roles.isPortalAdmin);
+}
+
+// Bulk confirm -- lets a client-admin/store-admin approve several
+// pending orders in one action instead of opening each one. Same
+// per-order access/precondition checks as confirmOrder, just looped;
+// one order failing (wrong status, no approval rights, sync problem)
+// doesn't block the others -- each gets its own outcome.
+async function bulkConfirm(req) {
+  const orderIds = req.body?.order_ids;
+  if (!Array.isArray(orderIds) || orderIds.length === 0) {
+    throw new ApiError(400, 'order_ids must be a non-empty array');
+  }
+
+  const { data: orders, error } = await supabaseAdmin.from('orders').select('*').in('id', orderIds);
+  if (error) throw new ApiError(500, 'Failed to load orders', error.message);
+
+  const notFound = orderIds.filter((id) => !orders.some((o) => o.id === id));
+  const confirmed = [];
+  const skipped = [];
+
+  for (const order of orders) {
+    if (!PRE_CONFIRM_STATUSES.includes(order.status)) {
+      skipped.push({ id: order.id, reason: `not pending (currently ${order.status})` });
+      continue;
+    }
+
+    const canApprove = await checkCanApprove(req.supabaseUser, order.store_id);
+    if (!canApprove) {
+      skipped.push({ id: order.id, reason: 'no approval rights for this store' });
+      continue;
+    }
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from('orders')
+      .update({ status: 'confirmed', approved_by: req.user.id })
+      .eq('id', order.id)
+      .select()
+      .single();
+    if (updateErr) {
+      skipped.push({ id: order.id, reason: updateErr.message });
+      continue;
+    }
+
+    await logEvent(order.id, req.user.id, 'confirmed', { bulk: true });
+    const synced = await syncOrderToCin7(updated);
+    confirmed.push(sanitizeOrder(synced || updated, req.roles.isPortalAdmin));
+  }
+
+  return { confirmed, skipped, not_found: notFound };
 }
 
 // Pre-confirm decline by the approving client-admin/store-admin. Same
@@ -456,4 +529,5 @@ module.exports = {
   resolveCancellation,
   deleteOrder,
   retrySync,
+  bulkConfirm,
 };

@@ -33,6 +33,14 @@ router.post(
   })
 );
 
+router.post(
+  '/bulk/confirm',
+  asyncHandler(async (req, res) => {
+    const result = await ordersService.bulkConfirm(req);
+    res.json(result);
+  })
+);
+
 router.get(
   '/:id',
   asyncHandler(async (req, res) => {

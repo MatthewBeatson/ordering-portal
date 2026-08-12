@@ -29,6 +29,12 @@ function mergeDuplicateLines(lines) {
 // Tax is computed here (not read back from Cin7) because Cin7's line
 // schema requires the caller to supply Tax/Total up front, and
 // order_lines carries no tax data of its own -- see clients.tax_rate.
+//
+// Comment is deliberately NOT sent -- order_lines.description gets
+// auto-populated with the product name (+ client SKU) at cart-add time
+// purely for our own UI display, and Cin7 already shows the product
+// name via its own SKU lookup, so pushing that same text into Cin7's
+// line Comment field just duplicated it there for no reason.
 function buildSaleOrderLine(line, client) {
   const quantity = Number(line.quantity);
   const price = Number(line.unit_price ?? 0);
@@ -41,7 +47,6 @@ function buildSaleOrderLine(line, client) {
     Tax: tax,
     Total: round2(subtotal + tax),
     TaxRule: client.cin7_tax_rule,
-    Comment: line.description || undefined,
   };
 }
 
