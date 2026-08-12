@@ -11,7 +11,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
-import type { DisplaySystem } from '@/lib/types';
+import type { DisplaySystem, ProductType } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
 
 type GroupMode = 'type' | 'display';
@@ -35,10 +35,22 @@ export default function Catalog() {
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const [selectedDisplaySystemId, setSelectedDisplaySystemId] = React.useState<string | null>(null);
+  // Multi-select: which product type(s) to narrow to within the
+  // selected display system(s) -- e.g. "Trays" under "Aisle Bays".
+  // Empty set = no narrowing, every type shown. Only meaningful in
+  // 'display' mode; 'type' mode's own top-level grouping is unchanged.
+  const [selectedProductTypeIds, setSelectedProductTypeIds] = React.useState<Set<string>>(new Set());
   const [quantities, setQuantities] = React.useState<Record<string, number>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
 
-  const filtered = React.useMemo(() => {
+  // Reset the type narrowing whenever the display-system selection
+  // changes -- the set of available types shifts, so a stale selection
+  // could silently filter everything out.
+  React.useEffect(() => {
+    setSelectedProductTypeIds(new Set());
+  }, [selectedDisplaySystemId]);
+
+  const searchAndDisplayFiltered = React.useMemo(() => {
     if (!products) return [];
     const q = search.trim().toLowerCase();
     let rows = products;
@@ -55,6 +67,11 @@ export default function Catalog() {
     return rows;
   }, [products, search, clientSkuByProduct, groupMode, selectedDisplaySystemId]);
 
+  const filtered = React.useMemo(() => {
+    if (groupMode !== 'display' || selectedProductTypeIds.size === 0) return searchAndDisplayFiltered;
+    return searchAndDisplayFiltered.filter((p) => p.product_type_id && selectedProductTypeIds.has(p.product_type_id));
+  }, [searchAndDisplayFiltered, groupMode, selectedProductTypeIds]);
+
   const displaySystemChips = React.useMemo(() => {
     if (!products) return [];
     const map = new Map<string, DisplaySystem>();
@@ -63,6 +80,30 @@ export default function Catalog() {
     }
     return [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
   }, [products]);
+
+  // Types available to narrow to, given the current search + display
+  // system selection (but NOT yet narrowed by the type selection itself
+  // -- otherwise picking one type would make every other chip vanish).
+  // Always ordered by product_types.display_order, the same canonical
+  // order used everywhere else types appear (including 'by product
+  // type' mode's own grouping) -- so this order never shifts depending
+  // on which display system is currently selected.
+  const productTypeChips = React.useMemo(() => {
+    const map = new Map<string, ProductType>();
+    for (const p of searchAndDisplayFiltered) {
+      if (p.product_types) map.set(p.product_types.id, p.product_types as ProductType);
+    }
+    return [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
+  }, [searchAndDisplayFiltered]);
+
+  function toggleProductTypeFilter(id: string) {
+    setSelectedProductTypeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   // Two-level grouping for "by display system": display system -> product type.
   // For "by product type": a single level, product type only.
@@ -217,6 +258,17 @@ export default function Catalog() {
               {displaySystemChips.map((ds) => (
                 <button key={ds.id} onClick={() => setSelectedDisplaySystemId(ds.id)}>
                   <Badge tone={selectedDisplaySystemId === ds.id ? 'accent' : 'muted'}>{ds.name}</Badge>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {groupMode === 'display' && productTypeChips.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-[var(--muted-foreground)]">Narrow to type:</span>
+              {productTypeChips.map((pt) => (
+                <button key={pt.id} onClick={() => toggleProductTypeFilter(pt.id)}>
+                  <Badge tone={selectedProductTypeIds.has(pt.id) ? 'accent' : 'muted'}>{pt.name}</Badge>
                 </button>
               ))}
             </div>

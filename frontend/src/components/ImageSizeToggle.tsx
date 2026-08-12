@@ -14,10 +14,9 @@ function next(value: ImageSize, cycle: ImageSize[]): ImageSize {
 
 // Single button that cycles through the sizes on each click, same
 // interaction as the original on/off "Include images" toggle just
-// extended to more states. Sizes are calibrated against the Catalog
-// page's own long-standing default thumbnail (80px): "Small" is
-// slightly under that, "Large" is clearly over it -- see
-// IMAGE_SIZE_CLASS below.
+// extended to more states. "Small" is a comfortable step up from
+// Catalog's old fixed 80px default; "Large" is a genuine close-up view,
+// not just "a bit bigger" -- see IMAGE_SIZE_CLASS below.
 //
 // allowHide=false drops "Hide" from the cycle entirely (used on Cart --
 // deliberately can't be turned off there, so a buyer can never lose
@@ -46,12 +45,12 @@ export function ImageSizeToggle({
 // ImageSize-typed variable.
 export const IMAGE_SIZE_CLASS: Record<ImageSize, string> = {
   hide: '',
-  small: 'h-16 w-16', // 64px -- slightly smaller than Catalog's 80px default
-  large: 'h-28 w-28', // 112px -- clearly larger than Catalog's 80px default
+  small: 'h-24 w-24', // 96px
+  large: 'h-56 w-56', // 224px -- a genuine close-up, not just "bigger"
 };
 
 export const IMAGE_COL_CLASS: Record<ImageSize, string> = {
   hide: '',
-  small: 'w-20',
-  large: 'w-32',
+  small: 'w-28',
+  large: 'w-64',
 };

@@ -8,6 +8,16 @@
 // Field names (ID, SKU, Name, Category, Description/ShortDescription,
 // PriceTier1..10) are taken from a real GET /Product response captured
 // against the trial account during earlier testing, not guessed.
+//
+// Two grouping axes, both sourced from Cin7, both resolved into their
+// own Supabase reference table rather than stored as raw text: Category
+// -> display_systems (cin7_category_value), AdditionalAttribute1 ->
+// product_types (cin7_attribute_value, 016_product_type_sync_anchor.sql).
+// AdditionalAttribute1 is a List-type custom field staff configure in
+// Cin7 themselves -- Cin7's own docs note it's silently empty on
+// Small/Medium subscription plans or without an AttributeSet assigned,
+// so an empty product_type_id after a sync may mean that, not a bug
+// here.
 
 const { supabaseAdmin } = require('../../config/supabase');
 const cin7 = require('./client');
@@ -51,7 +61,49 @@ async function resolveDisplaySystemId(cin7CategoryValue, cache) {
   return created.id;
 }
 
-function mapProduct(p, displaySystemId) {
+// Same resolve-or-create pattern as resolveDisplaySystemId, targeting
+// product_types.cin7_attribute_value (016_product_type_sync_anchor.sql)
+// instead. Sourced from Cin7's AdditionalAttribute1 -- a List-type
+// custom field staff configure in Cin7 themselves (e.g. Trays,
+// Plinths/Bases, Pads/Inserts...). Note: Cin7 silently returns this
+// field empty on Small/Medium subscription plans or if no Attribute
+// Set is assigned to the product -- not something this code can detect
+// or work around, just something to be aware of if types stay empty
+// after a sync.
+async function resolveProductTypeId(cin7AttributeValue, cache) {
+  if (!cin7AttributeValue) return null;
+  if (cache.has(cin7AttributeValue)) return cache.get(cin7AttributeValue);
+
+  const { data: existing, error: selectErr } = await supabaseAdmin
+    .from('product_types')
+    .select('id')
+    .eq('cin7_attribute_value', cin7AttributeValue)
+    .maybeSingle();
+  if (selectErr) {
+    console.error(`[cin7 productSync] failed to look up product_type for "${cin7AttributeValue}":`, selectErr.message);
+    cache.set(cin7AttributeValue, null);
+    return null;
+  }
+  if (existing) {
+    cache.set(cin7AttributeValue, existing.id);
+    return existing.id;
+  }
+
+  const { data: created, error: insertErr } = await supabaseAdmin
+    .from('product_types')
+    .insert({ name: cin7AttributeValue, cin7_attribute_value: cin7AttributeValue })
+    .select('id')
+    .single();
+  if (insertErr) {
+    console.error(`[cin7 productSync] failed to create product_type for "${cin7AttributeValue}":`, insertErr.message);
+    cache.set(cin7AttributeValue, null);
+    return null;
+  }
+  cache.set(cin7AttributeValue, created.id);
+  return created.id;
+}
+
+function mapProduct(p, displaySystemId, productTypeId) {
   return {
     cin7_product_id: p.ID,
     sku: p.SKU,
@@ -60,6 +112,7 @@ function mapProduct(p, displaySystemId) {
     category: p.Category || null,
     brand: p.Brand || null,
     display_system_id: displaySystemId,
+    product_type_id: productTypeId,
     price_tier_1: p.PriceTier1 ?? null,
     price_tier_2: p.PriceTier2 ?? null,
     price_tier_3: p.PriceTier3 ?? null,
@@ -83,6 +136,7 @@ async function syncProducts() {
   }
 
   const displaySystemCache = new Map();
+  const productTypeCache = new Map();
   let page = 1;
   let total = Infinity;
   let synced = 0;
@@ -99,7 +153,8 @@ async function syncProducts() {
 
     for (const p of products) {
       const displaySystemId = await resolveDisplaySystemId(p.Category, displaySystemCache);
-      const row = mapProduct(p, displaySystemId);
+      const productTypeId = await resolveProductTypeId(p.AdditionalAttribute1, productTypeCache);
+      const row = mapProduct(p, displaySystemId, productTypeId);
 
       const { error } = await supabaseAdmin.from('products').upsert(row, { onConflict: 'cin7_product_id' });
       if (error) {
