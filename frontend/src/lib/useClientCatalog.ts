@@ -2,11 +2,13 @@ import * as React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from './supabase';
 import { parseTierNumber } from './pricing';
-import type { Client, ClientProductSku, DisplaySystem, Product, ProductType } from './types';
+import type { Client, ClientProductSku, DisplaySystem, Product, ProductColour, ProductJewelleryType, ProductType } from './types';
 
 export type ProductRow = Product & {
   product_images: { storage_path: string; display_order: number; alt_text: string | null }[];
   product_types: Pick<ProductType, 'id' | 'name' | 'display_order'> | null;
+  product_jewellery_types: Pick<ProductJewelleryType, 'id' | 'name' | 'display_order'> | null;
+  product_colours: Pick<ProductColour, 'id' | 'name' | 'display_order'> | null;
   display_systems: Pick<DisplaySystem, 'id' | 'name' | 'display_order'> | null;
 };
 
@@ -57,7 +59,7 @@ export function useClientCatalog(clientId: string | undefined) {
       const { data, error } = await supabase
         .from('client_portal_products')
         .select(
-          'product_id, products(*, product_images(storage_path, display_order, alt_text), product_types(id, name, display_order), display_systems(id, name, display_order))'
+          'product_id, products(*, product_images(storage_path, display_order, alt_text), product_types(id, name, display_order), product_jewellery_types(id, name, display_order), product_colours(id, name, display_order), display_systems(id, name, display_order))'
         )
         .eq('client_id', clientId!);
       if (error) throw error;

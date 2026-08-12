@@ -9,101 +9,61 @@
 // PriceTier1..10) are taken from a real GET /Product response captured
 // against the trial account during earlier testing, not guessed.
 //
-// Two grouping axes, both sourced from Cin7, both resolved into their
-// own Supabase reference table rather than stored as raw text: Category
-// -> display_systems (cin7_category_value), AdditionalAttribute1 ->
-// product_types (cin7_attribute_value, 016_product_type_sync_anchor.sql).
-// AdditionalAttribute1 is a List-type custom field staff configure in
-// Cin7 themselves -- Cin7's own docs note it's silently empty on
-// Small/Medium subscription plans or without an AttributeSet assigned,
-// so an empty product_type_id after a sync may mean that, not a bug
-// here.
+// Four grouping/filter axes, all sourced from Cin7, all resolved into
+// their own Supabase reference table rather than stored as raw text:
+//   - Category            -> display_systems (cin7_category_value)
+//   - AdditionalAttribute1 -> product_types (016)
+//   - AdditionalAttribute2 -> product_jewellery_types (018) -- what
+//     jewellery item the fixture holds (Ring, Earring, Pendant...)
+//   - AdditionalAttribute3 -> product_colours (017)
+// AdditionalAttribute1-3 are List-type custom fields staff configure
+// in Cin7 themselves. Cin7's own docs note these are silently empty on
+// Small/Medium subscription plans or without an AttributeSet assigned
+// to the product -- not something this code can detect or work around,
+// just something to be aware of if a dimension stays empty after a
+// sync.
 
 const { supabaseAdmin } = require('../../config/supabase');
 const cin7 = require('./client');
 
 const PAGE_SIZE = 250;
 
-// display_systems.cin7_category_value is the sync anchor -- upserts a
-// row the first time a given Cin7 category is seen, reuses it after.
+// Shared resolve-or-create pattern for every Cin7-sourced reference
+// table: display_systems keys off cin7_category_value (Category has
+// its own field name), the other three key off cin7_attribute_value.
 // `name` is seeded from the raw Cin7 value but is staff-editable
-// afterward if it isn't already display-ready.
-async function resolveDisplaySystemId(cin7CategoryValue, cache) {
-  if (!cin7CategoryValue) return null;
-  if (cache.has(cin7CategoryValue)) return cache.get(cin7CategoryValue);
+// afterward if it isn't already display-ready -- the anchor column is
+// what keeps the sync link stable across a rename.
+async function resolveReferenceId(table, anchorColumn, cin7Value, cache) {
+  if (!cin7Value) return null;
+  if (cache.has(cin7Value)) return cache.get(cin7Value);
 
-  const { data: existing, error: selectErr } = await supabaseAdmin
-    .from('display_systems')
-    .select('id')
-    .eq('cin7_category_value', cin7CategoryValue)
-    .maybeSingle();
+  const { data: existing, error: selectErr } = await supabaseAdmin.from(table).select('id').eq(anchorColumn, cin7Value).maybeSingle();
   if (selectErr) {
-    console.error(`[cin7 productSync] failed to look up display_system for category "${cin7CategoryValue}":`, selectErr.message);
-    cache.set(cin7CategoryValue, null);
+    console.error(`[cin7 productSync] failed to look up ${table} for "${cin7Value}":`, selectErr.message);
+    cache.set(cin7Value, null);
     return null;
   }
   if (existing) {
-    cache.set(cin7CategoryValue, existing.id);
+    cache.set(cin7Value, existing.id);
     return existing.id;
   }
 
   const { data: created, error: insertErr } = await supabaseAdmin
-    .from('display_systems')
-    .insert({ name: cin7CategoryValue, cin7_category_value: cin7CategoryValue })
+    .from(table)
+    .insert({ name: cin7Value, [anchorColumn]: cin7Value })
     .select('id')
     .single();
   if (insertErr) {
-    console.error(`[cin7 productSync] failed to create display_system for category "${cin7CategoryValue}":`, insertErr.message);
-    cache.set(cin7CategoryValue, null);
+    console.error(`[cin7 productSync] failed to create ${table} for "${cin7Value}":`, insertErr.message);
+    cache.set(cin7Value, null);
     return null;
   }
-  cache.set(cin7CategoryValue, created.id);
+  cache.set(cin7Value, created.id);
   return created.id;
 }
 
-// Same resolve-or-create pattern as resolveDisplaySystemId, targeting
-// product_types.cin7_attribute_value (016_product_type_sync_anchor.sql)
-// instead. Sourced from Cin7's AdditionalAttribute1 -- a List-type
-// custom field staff configure in Cin7 themselves (e.g. Trays,
-// Plinths/Bases, Pads/Inserts...). Note: Cin7 silently returns this
-// field empty on Small/Medium subscription plans or if no Attribute
-// Set is assigned to the product -- not something this code can detect
-// or work around, just something to be aware of if types stay empty
-// after a sync.
-async function resolveProductTypeId(cin7AttributeValue, cache) {
-  if (!cin7AttributeValue) return null;
-  if (cache.has(cin7AttributeValue)) return cache.get(cin7AttributeValue);
-
-  const { data: existing, error: selectErr } = await supabaseAdmin
-    .from('product_types')
-    .select('id')
-    .eq('cin7_attribute_value', cin7AttributeValue)
-    .maybeSingle();
-  if (selectErr) {
-    console.error(`[cin7 productSync] failed to look up product_type for "${cin7AttributeValue}":`, selectErr.message);
-    cache.set(cin7AttributeValue, null);
-    return null;
-  }
-  if (existing) {
-    cache.set(cin7AttributeValue, existing.id);
-    return existing.id;
-  }
-
-  const { data: created, error: insertErr } = await supabaseAdmin
-    .from('product_types')
-    .insert({ name: cin7AttributeValue, cin7_attribute_value: cin7AttributeValue })
-    .select('id')
-    .single();
-  if (insertErr) {
-    console.error(`[cin7 productSync] failed to create product_type for "${cin7AttributeValue}":`, insertErr.message);
-    cache.set(cin7AttributeValue, null);
-    return null;
-  }
-  cache.set(cin7AttributeValue, created.id);
-  return created.id;
-}
-
-function mapProduct(p, displaySystemId, productTypeId) {
+function mapProduct(p, displaySystemId, productTypeId, jewelleryTypeId, colourId) {
   return {
     cin7_product_id: p.ID,
     sku: p.SKU,
@@ -113,6 +73,8 @@ function mapProduct(p, displaySystemId, productTypeId) {
     brand: p.Brand || null,
     display_system_id: displaySystemId,
     product_type_id: productTypeId,
+    jewellery_type_id: jewelleryTypeId,
+    colour_id: colourId,
     price_tier_1: p.PriceTier1 ?? null,
     price_tier_2: p.PriceTier2 ?? null,
     price_tier_3: p.PriceTier3 ?? null,
@@ -137,6 +99,8 @@ async function syncProducts() {
 
   const displaySystemCache = new Map();
   const productTypeCache = new Map();
+  const jewelleryTypeCache = new Map();
+  const colourCache = new Map();
   let page = 1;
   let total = Infinity;
   let synced = 0;
@@ -152,9 +116,16 @@ async function syncProducts() {
     const products = res.body.Products ?? [];
 
     for (const p of products) {
-      const displaySystemId = await resolveDisplaySystemId(p.Category, displaySystemCache);
-      const productTypeId = await resolveProductTypeId(p.AdditionalAttribute1, productTypeCache);
-      const row = mapProduct(p, displaySystemId, productTypeId);
+      const displaySystemId = await resolveReferenceId('display_systems', 'cin7_category_value', p.Category, displaySystemCache);
+      const productTypeId = await resolveReferenceId('product_types', 'cin7_attribute_value', p.AdditionalAttribute1, productTypeCache);
+      const jewelleryTypeId = await resolveReferenceId(
+        'product_jewellery_types',
+        'cin7_attribute_value',
+        p.AdditionalAttribute2,
+        jewelleryTypeCache
+      );
+      const colourId = await resolveReferenceId('product_colours', 'cin7_attribute_value', p.AdditionalAttribute3, colourCache);
+      const row = mapProduct(p, displaySystemId, productTypeId, jewelleryTypeId, colourId);
 
       const { error } = await supabaseAdmin.from('products').upsert(row, { onConflict: 'cin7_product_id' });
       if (error) {

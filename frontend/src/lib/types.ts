@@ -56,6 +56,18 @@ export interface ProductType {
   display_order: number;
 }
 
+export interface ProductJewelleryType {
+  id: string;
+  name: string;
+  display_order: number;
+}
+
+export interface ProductColour {
+  id: string;
+  name: string;
+  display_order: number;
+}
+
 export interface DisplaySystem {
   id: string;
   name: string;
@@ -70,6 +82,8 @@ export interface Product {
   description: string | null;
   category: string | null;
   product_type_id: string | null;
+  jewellery_type_id: string | null;
+  colour_id: string | null;
   display_system_id: string | null;
   is_active: boolean;
   price_tier_1: number | null;

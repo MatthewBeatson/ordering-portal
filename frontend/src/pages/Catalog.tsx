@@ -11,10 +11,27 @@ import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
-import type { DisplaySystem, ProductType } from '@/lib/types';
+import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
 
 type GroupMode = 'type' | 'display';
+
+// Three parallel facets under 'display' mode -- Type, Jewellery held,
+// Colour -- sourced from Cin7 Additional Attributes 1/2/3. "Parallel"
+// deliberately, not a fixed cascade: a user can pick any of the three
+// in any order, and each facet's own available chips are computed from
+// what's left after every OTHER active facet (search + display system
+// + the other two facets), never resetting one when another changes.
+// Only the top-level display-system selection resets all three, since
+// that's a genuinely different product pool.
+type FacetKey = 'productType' | 'jewelleryType' | 'colour';
+type FacetRef = { id: string; name: string; display_order: number };
+
+const FACETS: { key: FacetKey; label: string; getRef: (p: ProductRow) => FacetRef | null }[] = [
+  { key: 'productType', label: 'Type', getRef: (p) => p.product_types },
+  { key: 'jewelleryType', label: 'Jewellery held', getRef: (p) => p.product_jewellery_types },
+  { key: 'colour', label: 'Colour', getRef: (p) => p.product_colours },
+];
 
 export default function Catalog() {
   const cart = useCart();
@@ -35,19 +52,20 @@ export default function Catalog() {
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const [selectedDisplaySystemId, setSelectedDisplaySystemId] = React.useState<string | null>(null);
-  // Multi-select: which product type(s) to narrow to within the
-  // selected display system(s) -- e.g. "Trays" under "Aisle Bays".
-  // Empty set = no narrowing, every type shown. Only meaningful in
-  // 'display' mode; 'type' mode's own top-level grouping is unchanged.
-  const [selectedProductTypeIds, setSelectedProductTypeIds] = React.useState<Set<string>>(new Set());
+  const [facetSelections, setFacetSelections] = React.useState<Record<FacetKey, Set<string>>>({
+    productType: new Set(),
+    jewelleryType: new Set(),
+    colour: new Set(),
+  });
   const [quantities, setQuantities] = React.useState<Record<string, number>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
 
-  // Reset the type narrowing whenever the display-system selection
-  // changes -- the set of available types shifts, so a stale selection
-  // could silently filter everything out.
+  // Reset all three facets whenever the display-system selection
+  // changes -- the whole product pool shifts, so a stale facet
+  // selection could silently filter everything out. The facets never
+  // reset each other, only this higher-level change does.
   React.useEffect(() => {
-    setSelectedProductTypeIds(new Set());
+    setFacetSelections({ productType: new Set(), jewelleryType: new Set(), colour: new Set() });
   }, [selectedDisplaySystemId]);
 
   const searchAndDisplayFiltered = React.useMemo(() => {
@@ -57,7 +75,18 @@ export default function Catalog() {
     if (q) {
       rows = rows.filter((p) => {
         const clientSku = clientSkuByProduct.get(p.id) ?? '';
-        const haystack = [p.sku, clientSku, p.name, p.description ?? '', p.product_types?.name ?? '', p.display_systems?.name ?? ''].join(' ').toLowerCase();
+        const haystack = [
+          p.sku,
+          clientSku,
+          p.name,
+          p.description ?? '',
+          p.product_types?.name ?? '',
+          p.product_jewellery_types?.name ?? '',
+          p.product_colours?.name ?? '',
+          p.display_systems?.name ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
         return haystack.includes(q);
       });
     }
@@ -67,10 +96,27 @@ export default function Catalog() {
     return rows;
   }, [products, search, clientSkuByProduct, groupMode, selectedDisplaySystemId]);
 
+  // A row matches if it satisfies every active facet except the one
+  // named in `excludeKey` (pass null to apply all three, used for the
+  // final product list; pass a facet's own key when computing THAT
+  // facet's chip options, so its own selection doesn't shrink its own
+  // choices).
+  const matchesFacets = React.useCallback(
+    (p: ProductRow, excludeKey: FacetKey | null) =>
+      FACETS.every((f) => {
+        if (f.key === excludeKey) return true;
+        const selected = facetSelections[f.key];
+        if (selected.size === 0) return true;
+        const ref = f.getRef(p);
+        return !!ref && selected.has(ref.id);
+      }),
+    [facetSelections]
+  );
+
   const filtered = React.useMemo(() => {
-    if (groupMode !== 'display' || selectedProductTypeIds.size === 0) return searchAndDisplayFiltered;
-    return searchAndDisplayFiltered.filter((p) => p.product_type_id && selectedProductTypeIds.has(p.product_type_id));
-  }, [searchAndDisplayFiltered, groupMode, selectedProductTypeIds]);
+    if (groupMode !== 'display') return searchAndDisplayFiltered;
+    return searchAndDisplayFiltered.filter((p) => matchesFacets(p, null));
+  }, [searchAndDisplayFiltered, groupMode, matchesFacets]);
 
   const displaySystemChips = React.useMemo(() => {
     if (!products) return [];
@@ -81,27 +127,32 @@ export default function Catalog() {
     return [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
   }, [products]);
 
-  // Types available to narrow to, given the current search + display
-  // system selection (but NOT yet narrowed by the type selection itself
-  // -- otherwise picking one type would make every other chip vanish).
-  // Always ordered by product_types.display_order, the same canonical
-  // order used everywhere else types appear (including 'by product
-  // type' mode's own grouping) -- so this order never shifts depending
-  // on which display system is currently selected.
-  const productTypeChips = React.useMemo(() => {
-    const map = new Map<string, ProductType>();
-    for (const p of searchAndDisplayFiltered) {
-      if (p.product_types) map.set(p.product_types.id, p.product_types as ProductType);
+  // Each facet's own available chips, computed from what's left after
+  // every OTHER active facet (search + display system + the other two
+  // facets) -- never narrowed by the facet's own current selection, so
+  // picking a chip never makes its siblings disappear. Always ordered
+  // by display_order, the same canonical order used everywhere these
+  // types appear (including 'by product type' mode's own grouping).
+  const facetChips = React.useMemo(() => {
+    const result = {} as Record<FacetKey, FacetRef[]>;
+    for (const facet of FACETS) {
+      const map = new Map<string, FacetRef>();
+      for (const p of searchAndDisplayFiltered) {
+        if (!matchesFacets(p, facet.key)) continue;
+        const ref = facet.getRef(p);
+        if (ref) map.set(ref.id, ref);
+      }
+      result[facet.key] = [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
     }
-    return [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
-  }, [searchAndDisplayFiltered]);
+    return result;
+  }, [searchAndDisplayFiltered, matchesFacets]);
 
-  function toggleProductTypeFilter(id: string) {
-    setSelectedProductTypeIds((prev) => {
-      const next = new Set(prev);
+  function toggleFacet(key: FacetKey, id: string) {
+    setFacetSelections((prev) => {
+      const next = new Set(prev[key]);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      return next;
+      return { ...prev, [key]: next };
     });
   }
 
@@ -263,16 +314,19 @@ export default function Catalog() {
             </div>
           )}
 
-          {groupMode === 'display' && productTypeChips.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-[var(--muted-foreground)]">Narrow to type:</span>
-              {productTypeChips.map((pt) => (
-                <button key={pt.id} onClick={() => toggleProductTypeFilter(pt.id)}>
-                  <Badge tone={selectedProductTypeIds.has(pt.id) ? 'accent' : 'muted'}>{pt.name}</Badge>
-                </button>
-              ))}
-            </div>
-          )}
+          {groupMode === 'display' &&
+            FACETS.map((facet) =>
+              facetChips[facet.key].length > 0 ? (
+                <div key={facet.key} className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-[var(--muted-foreground)]">{facet.label}:</span>
+                  {facetChips[facet.key].map((ref) => (
+                    <button key={ref.id} onClick={() => toggleFacet(facet.key, ref.id)}>
+                      <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
+                    </button>
+                  ))}
+                </div>
+              ) : null
+            )}
         </div>
 
         {products && products.length > 0 && (
