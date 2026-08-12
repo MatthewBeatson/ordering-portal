@@ -9,6 +9,7 @@ import Cart from '@/pages/Cart';
 import Orders from '@/pages/Orders';
 import OrderDetail from '@/pages/OrderDetail';
 import Approvals from '@/pages/Approvals';
+import Account from '@/pages/Account';
 import ProductCuration from '@/pages/admin/ProductCuration';
 import DevSession from '@/pages/DevSession';
 
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/:orderId" element={<OrderDetail />} />
           <Route path="/approvals" element={<Approvals />} />
+          <Route path="/account" element={<Account />} />
 
           <Route element={<StaffOnlyRoute />}>
             <Route path="/admin/products" element={<ProductCuration />} />

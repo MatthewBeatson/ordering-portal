@@ -3,6 +3,7 @@ const cors = require('cors');
 const ordersRouter = require('./routes/orders');
 const productsRouter = require('./routes/products');
 const clientsRouter = require('./routes/clients');
+const storesRouter = require('./routes/stores');
 const cin7WebhookRouter = require('./integrations/cin7/webhook');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
@@ -17,6 +18,7 @@ function createApp() {
   app.use('/orders', ordersRouter);
   app.use('/products', productsRouter);
   app.use('/clients', clientsRouter);
+  app.use('/stores', storesRouter);
   // Not under requireAuth -- Cin7 isn't a Supabase user. Authenticated
   // via a bearer token instead, checked inside the router itself.
   app.use('/webhooks/cin7', cin7WebhookRouter);

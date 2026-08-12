@@ -83,3 +83,17 @@ export const productsApi = {
       client_id: clientId,
     }),
 };
+
+export interface ManageableStore {
+  id: string;
+  name: string;
+  store_number: string | null;
+  client_id: string;
+  clients: { name: string } | null;
+}
+
+export const storesApi = {
+  listManageable: () => request<{ stores: ManageableStore[] }>('GET', '/stores'),
+  updateStoreNumber: (id: string, storeNumber: string) =>
+    request<ManageableStore>('PATCH', `/stores/${id}/store-number`, { store_number: storeNumber }),
+};

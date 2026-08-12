@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/CartContext';
 import { cn } from '@/lib/utils';
-import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut } from 'lucide-react';
+import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut, Settings } from 'lucide-react';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -15,6 +15,7 @@ export function AppShell() {
   const { count } = useCart();
 
   const canApproveAnything = isPortalAdmin || clientRoles.length > 0 || storeRoles.some((r) => r.role === 'store_admin');
+  const canManageAccount = isPortalAdmin || clientRoles.length > 0;
 
   return (
     <div className="flex min-h-screen">
@@ -50,7 +51,13 @@ export function AppShell() {
         </nav>
 
         <div className="mt-4 border-t border-[var(--border)] pt-4">
-          <p className="truncate px-2 text-xs text-[var(--muted-foreground)]">{session?.user.email}</p>
+          {canManageAccount && (
+            <NavLink to="/account" className={navLinkClass}>
+              <Settings className="h-4 w-4" />
+              Account
+            </NavLink>
+          )}
+          <p className="mt-2 truncate px-2 text-xs text-[var(--muted-foreground)]">{session?.user.email}</p>
           <button
             onClick={() => signOut()}
             className="mt-1 flex w-full items-center gap-2.5 rounded-[var(--radius)] px-2 py-2 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
