@@ -90,6 +90,19 @@ async function fetchProductsPage(page, limit) {
   return cin7Fetch('GET', `/Product?page=${page}&limit=${limit}`);
 }
 
+// GET /Customer?ID=<id> -- confirmed directly against the trial
+// account: neither the help docs' plural /Customers, nor a /Customer/
+// {id} path style, work -- only singular /Customer with a query-string
+// ID (matching /Sale?ID=). Response wraps in the same {Total, Page,
+// CustomerList: [...]} shape as the unfiltered list endpoint, not a
+// bare object. Includes the real Addresses collection (Type/
+// DefaultForType/Line1.../Country) used by addressSync.js.
+async function fetchCustomer(cin7CustomerId) {
+  const res = await cin7Fetch('GET', `/Customer?ID=${encodeURIComponent(cin7CustomerId)}`);
+  if (!res.ok) return res;
+  return { ...res, body: res.body?.CustomerList?.[0] || null };
+}
+
 module.exports = {
   isConfigured,
   cin7Fetch,
@@ -99,4 +112,5 @@ module.exports = {
   createSaleHeader,
   createSaleOrderLines,
   fetchProductsPage,
+  fetchCustomer,
 };

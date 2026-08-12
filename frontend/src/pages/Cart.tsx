@@ -1,9 +1,10 @@
 import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCart } from '@/lib/CartContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
+import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
 import { money } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
-import { Trash2 } from 'lucide-react';
+import type { ClientAddress } from '@/lib/types';
+import { Trash2, MapPin } from 'lucide-react';
 
 export default function Cart() {
   const cart = useCart();
@@ -24,6 +26,18 @@ export default function Cart() {
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
+
+  const { data: addresses } = useQuery({
+    queryKey: ['client-addresses', currentStore?.client_id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('client_addresses').select('*').eq('client_id', currentStore!.client_id).order('is_default', { ascending: false });
+      if (error) throw error;
+      return data as ClientAddress[];
+    },
+    enabled: !!currentStore,
+  });
+  const defaultAddress = addresses?.find((a) => a.is_default) ?? addresses?.[0];
+  const alternateAddresses = (addresses ?? []).filter((a) => a.id !== defaultAddress?.id);
 
   const submit = useMutation({
     mutationFn: () => {
@@ -124,6 +138,26 @@ export default function Cart() {
           )}
         </table>
       </Card>
+
+      {defaultAddress && (
+        <Card className="p-4">
+          <div className="mb-1 flex items-center gap-1.5 text-sm font-medium">
+            <MapPin className="h-4 w-4 text-[var(--muted-foreground)]" />
+            Delivery address
+          </div>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {[defaultAddress.line1, defaultAddress.line2, defaultAddress.city, defaultAddress.state, defaultAddress.postcode, defaultAddress.country]
+              .filter(Boolean)
+              .join(', ')}
+          </p>
+          {alternateAddresses.length > 0 && (
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              {alternateAddresses.length} other address{alternateAddresses.length === 1 ? '' : 'es'} on file for this client — picking a
+              different one per order isn't available yet.
+            </p>
+          )}
+        </Card>
+      )}
 
       <Card className="p-4">
         <label htmlFor="notes" className="mb-1 block text-sm font-medium">

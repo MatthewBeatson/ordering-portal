@@ -98,6 +98,20 @@ export interface ClientProductSku {
   client_sku: string;
 }
 
+export interface ClientAddress {
+  id: string;
+  client_id: string;
+  cin7_address_id: string;
+  type: string;
+  is_default: boolean;
+  line1: string;
+  line2: string | null;
+  city: string | null;
+  state: string | null;
+  postcode: string | null;
+  country: string | null;
+}
+
 export interface CartLine {
   sku: string;
   description?: string;
