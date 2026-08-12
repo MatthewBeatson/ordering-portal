@@ -1,7 +1,12 @@
 import { Badge } from '@/components/ui/badge';
 import type { OrderStatus } from '@/lib/types';
 
-const LABELS: Record<OrderStatus, string> = {
+export type BadgeTone = 'default' | 'accent' | 'success' | 'danger' | 'muted' | 'warning' | 'purple' | 'teal';
+
+// Exported so other places that reference order status (e.g. the My
+// Orders filter tabs) use the exact same label/color mapping instead
+// of a second hand-kept copy that could drift out of sync.
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   pending: 'Pending',
   confirmed: 'Confirmed',
   in_progress: 'In progress',
@@ -10,7 +15,7 @@ const LABELS: Record<OrderStatus, string> = {
   rejected: 'Rejected',
 };
 
-const TONES: Record<OrderStatus, 'default' | 'accent' | 'success' | 'danger' | 'muted' | 'warning' | 'purple' | 'teal'> = {
+export const ORDER_STATUS_TONES: Record<OrderStatus, BadgeTone> = {
   pending: 'warning',
   confirmed: 'accent',
   in_progress: 'purple',
@@ -20,5 +25,5 @@ const TONES: Record<OrderStatus, 'default' | 'accent' | 'success' | 'danger' | '
 };
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {
-  return <Badge tone={TONES[status]}>{LABELS[status]}</Badge>;
+  return <Badge tone={ORDER_STATUS_TONES[status]}>{ORDER_STATUS_LABELS[status]}</Badge>;
 }

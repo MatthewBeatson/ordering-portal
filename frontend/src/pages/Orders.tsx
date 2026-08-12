@@ -4,19 +4,19 @@ import { useQuery } from '@tanstack/react-query';
 import { ordersApi } from '@/lib/api';
 import { useMyStores } from '@/lib/useStores';
 import { dateTime } from '@/lib/format';
-import { OrderStatusBadge } from '@/components/OrderStatusBadge';
+import { OrderStatusBadge, ORDER_STATUS_LABELS, ORDER_STATUS_TONES, type BadgeTone } from '@/components/OrderStatusBadge';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import type { OrderStatus } from '@/lib/types';
 
-const STATUS_TABS: { label: string; value: OrderStatus | 'all' }[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Pending', value: 'pending' },
-  { label: 'Confirmed', value: 'confirmed' },
-  { label: 'In progress', value: 'in_progress' },
-  { label: 'Shipped', value: 'shipped' },
-  { label: 'Delivered', value: 'delivered' },
-  { label: 'Rejected', value: 'rejected' },
+const STATUS_TABS: { label: string; value: OrderStatus | 'all'; tone: BadgeTone }[] = [
+  { label: 'All', value: 'all', tone: 'default' },
+  ...(Object.keys(ORDER_STATUS_LABELS) as OrderStatus[]).map((value) => ({
+    label: ORDER_STATUS_LABELS[value],
+    value,
+    tone: ORDER_STATUS_TONES[value],
+  })),
 ];
 
 export default function Orders() {
@@ -35,14 +35,10 @@ export default function Orders() {
 
       <div className="flex flex-wrap gap-1.5">
         {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => setStatus(tab.value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${
-              status === tab.value ? 'bg-[var(--accent)] text-white' : 'border border-[var(--border-strong)] text-[var(--muted-foreground)] hover:bg-[var(--muted)]'
-            }`}
-          >
-            {tab.label}
+          <button key={tab.value} onClick={() => setStatus(tab.value)} className="transition-opacity hover:opacity-100">
+            <Badge tone={tab.tone} className={status === tab.value ? 'ring-1 ring-current' : 'opacity-55'}>
+              {tab.label}
+            </Badge>
           </button>
         ))}
       </div>
