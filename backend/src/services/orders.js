@@ -44,6 +44,24 @@ function isInvalidUuidError(error) {
   return error?.code === '22P02' || error?.code === 'PGRST102';
 }
 
+function validateLines(lines, errors) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    errors.push('lines must be a non-empty array');
+    return;
+  }
+  lines.forEach((line, i) => {
+    if (!line || typeof line.sku !== 'string' || !line.sku.trim()) {
+      errors.push(`lines[${i}].sku is required`);
+    }
+    if (typeof line.quantity !== 'number' || line.quantity <= 0) {
+      errors.push(`lines[${i}].quantity must be a number > 0`);
+    }
+    if (line.unit_price != null && typeof line.unit_price !== 'number') {
+      errors.push(`lines[${i}].unit_price must be a number`);
+    }
+  });
+}
+
 function validateCreateInput(body) {
   const errors = [];
   if (!body || typeof body !== 'object') errors.push('Request body must be a JSON object');
@@ -51,26 +69,22 @@ function validateCreateInput(body) {
   const storeId = body?.store_id;
   if (!storeId || typeof storeId !== 'string') errors.push('store_id is required');
 
-  const lines = body?.lines;
-  if (!Array.isArray(lines) || lines.length === 0) {
-    errors.push('lines must be a non-empty array');
-  } else {
-    lines.forEach((line, i) => {
-      if (!line || typeof line.sku !== 'string' || !line.sku.trim()) {
-        errors.push(`lines[${i}].sku is required`);
-      }
-      if (typeof line.quantity !== 'number' || line.quantity <= 0) {
-        errors.push(`lines[${i}].quantity must be a number > 0`);
-      }
-      if (line.unit_price != null && typeof line.unit_price !== 'number') {
-        errors.push(`lines[${i}].unit_price must be a number`);
-      }
-    });
-  }
+  validateLines(body?.lines, errors);
 
   if (errors.length > 0) throw new ApiError(400, 'Invalid order payload', errors);
 
-  return { storeId, notes: body.notes ?? null, lines };
+  return { storeId, notes: body.notes ?? null, lines: body.lines };
+}
+
+function validateUpdateInput(body) {
+  const errors = [];
+  if (!body || typeof body !== 'object') errors.push('Request body must be a JSON object');
+
+  validateLines(body?.lines, errors);
+
+  if (errors.length > 0) throw new ApiError(400, 'Invalid order payload', errors);
+
+  return { notes: body.notes ?? null, lines: body.lines };
 }
 
 async function fetchOrder(orderId) {
@@ -169,6 +183,57 @@ async function createOrder(req) {
   await logEvent(order.id, req.user.id, 'created', { status: 'pending' });
 
   return { ...sanitizeOrder(order, req.roles.isPortalAdmin), order_lines: orderLines };
+}
+
+// Pending-only: a buyer/approver with access to the order's store can
+// still change what's in it before anyone's acted on it, rather than
+// having to delete and recreate from scratch. Full replace of
+// order_lines (matches the pattern already used for address
+// mirroring) -- simpler and safer than diffing individual lines, and
+// order_lines carries no state worth preserving across an edit (no
+// per-line audit trail today).
+async function updateOrder(req, orderId) {
+  const { notes, lines } = validateUpdateInput(req.body);
+  const order = await fetchOrder(orderId);
+
+  if (order.status !== 'pending') {
+    throw new ApiError(409, `Order cannot be edited from its current status (${order.status})`);
+  }
+
+  const hasAccess = await checkStoreAccess(req.supabaseUser, order.store_id);
+  if (!hasAccess) throw new ApiError(403, 'You do not have access to this order');
+
+  const { data: store, error: storeErr } = await supabaseAdmin.from('stores').select('client_id').eq('id', order.store_id).maybeSingle();
+  if (storeErr || !store) throw new ApiError(500, 'Failed to load store', storeErr?.message);
+
+  const invalidSkus = await findSkusNotCuratedForClient(store.client_id, lines.map((l) => l.sku));
+  if (invalidSkus.length > 0) {
+    throw new ApiError(400, "These SKUs aren't available on this client's portal", invalidSkus);
+  }
+
+  const { error: deleteErr } = await supabaseAdmin.from('order_lines').delete().eq('order_id', orderId);
+  if (deleteErr) throw new ApiError(500, 'Failed to update order lines', deleteErr.message);
+
+  const { data: orderLines, error: insertErr } = await supabaseAdmin
+    .from('order_lines')
+    .insert(
+      lines.map((l) => ({
+        order_id: orderId,
+        sku: l.sku,
+        description: l.description ?? null,
+        quantity: l.quantity,
+        unit_price: l.unit_price ?? null,
+      }))
+    )
+    .select();
+  if (insertErr) throw new ApiError(500, 'Failed to update order lines', insertErr.message);
+
+  const { data: updated, error: updateErr } = await supabaseAdmin.from('orders').update({ notes }).eq('id', orderId).select().single();
+  if (updateErr) throw new ApiError(500, 'Failed to update order', updateErr.message);
+
+  await logEvent(orderId, req.user.id, 'edited', null);
+
+  return { ...sanitizeOrder(updated, req.roles.isPortalAdmin), order_lines: orderLines };
 }
 
 async function listOrders(req) {
@@ -557,6 +622,7 @@ async function deleteOrder(req, orderId) {
 
 module.exports = {
   createOrder,
+  updateOrder,
   listOrders,
   getOrder,
   confirmOrder,

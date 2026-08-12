@@ -15,7 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import type { ClientAddress } from '@/lib/types';
-import { Trash2, MapPin } from 'lucide-react';
+import { Trash2, MapPin, Pencil, X } from 'lucide-react';
 
 export default function Cart() {
   const cart = useCart();
@@ -33,6 +33,27 @@ export default function Cart() {
   const currentStore = stores?.find((s) => s.id === cart.storeId);
   const { tierNumber, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
 
+  // Editing an existing pending order: fetch it once and hydrate the
+  // (already-cleared, see CartContext.startEditingOrder) cart lines +
+  // notes from it. hydratedRef guards against re-populating on every
+  // refetch/re-render -- after the first load this cart is just a
+  // normal editable cart, same as building a fresh one.
+  const { data: editingOrder } = useQuery({
+    queryKey: ['order', cart.editingOrderId],
+    queryFn: () => ordersApi.get(cart.editingOrderId!),
+    enabled: !!cart.editingOrderId,
+  });
+  const hydratedRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!editingOrder || hydratedRef.current === editingOrder.id) return;
+    hydratedRef.current = editingOrder.id;
+    setNotes(editingOrder.notes ?? '');
+    for (const line of editingOrder.order_lines ?? []) {
+      cart.addLine({ sku: line.sku, description: line.description ?? undefined, quantity: line.quantity, unit_price: line.unit_price ?? undefined });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingOrder]);
+
   const { data: addresses } = useQuery({
     queryKey: ['client-addresses', currentStore?.client_id],
     queryFn: async () => {
@@ -48,30 +69,56 @@ export default function Cart() {
   const submit = useMutation({
     mutationFn: () => {
       if (!cart.storeId) throw new Error('No store selected.');
-      return ordersApi.create({
-        store_id: cart.storeId,
-        notes: notes || undefined,
-        lines: cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price })),
-      });
+      const lines = cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
+      if (cart.editingOrderId) {
+        return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines });
+      }
+      return ordersApi.create({ store_id: cart.storeId, notes: notes || undefined, lines });
     },
     onSuccess: (order) => {
+      const wasEditing = !!cart.editingOrderId;
+      cart.stopEditing();
       cart.clear();
-      navigate(`/orders/${order.id}`);
+      navigate(`/orders/${order.id}`, wasEditing ? { replace: true } : undefined);
     },
     onError: (err: Error) => setError(err.message),
   });
 
+  function cancelEdit() {
+    cart.stopEditing();
+    cart.clear();
+    if (editingOrder) navigate(`/orders/${editingOrder.id}`);
+  }
+
   const total = cart.lines.reduce((sum, l) => sum + (l.unit_price ?? 0) * l.quantity, 0);
   const hasPricing = cart.lines.some((l) => l.unit_price != null);
   const isEmpty = cart.lines.length === 0;
+  const isEditing = !!cart.editingOrderId;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Cart</h1>
+        <div>
+          <h1 className="flex items-center gap-2 text-lg font-semibold">
+            {isEditing ? (
+              <>
+                <Pencil className="h-4 w-4 text-[var(--muted-foreground)]" />
+                Editing {editingOrder?.reference || `order ${cart.editingOrderId?.slice(0, 8)}`}
+              </>
+            ) : (
+              'Cart'
+            )}
+          </h1>
+        </div>
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
           {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} allowHide={false} />}
+          {isEditing && (
+            <Button size="sm" variant="ghost" onClick={cancelEdit}>
+              <X className="h-3.5 w-3.5" />
+              Cancel edit
+            </Button>
+          )}
         </div>
       </div>
 
@@ -84,7 +131,13 @@ export default function Cart() {
 
       {isEmpty ? (
         <Card className="p-6 text-sm text-[var(--muted-foreground)]">
-          Your cart is empty. Add products above, or from the <a href="/" className="text-[var(--accent)] hover:underline">catalog</a>.
+          {isEditing
+            ? 'No lines left in this order. Add products above, or cancel to leave the order unchanged.'
+            : (
+              <>
+                Your cart is empty. Add products above, or from the <a href="/" className="text-[var(--accent)] hover:underline">catalog</a>.
+              </>
+            )}
         </Card>
       ) : (
         <>
@@ -189,10 +242,10 @@ export default function Cart() {
 
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={() => cart.clear()} disabled={submit.isPending}>
-          Clear cart
+          Clear {isEditing ? 'lines' : 'cart'}
         </Button>
         <Button variant="primary" onClick={() => submit.mutate()} disabled={submit.isPending || !cart.storeId}>
-          {submit.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : 'Submit order'}
+          {submit.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : isEditing ? 'Save changes' : 'Submit order'}
         </Button>
       </div>
         </>

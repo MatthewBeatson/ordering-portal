@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ordersApi } from '@/lib/api';
 import { useAuth } from '@/lib/AuthContext';
+import { useCart } from '@/lib/CartContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { money, dateTime } from '@/lib/format';
@@ -12,11 +13,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Pencil } from 'lucide-react';
 
 export default function OrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
   const { canApprove, isPortalAdmin } = useAuth();
+  const cart = useCart();
   const { data: stores } = useMyStores();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -82,6 +84,12 @@ export default function OrderDetail() {
   const canCancelDirectly = order.status === 'pending' || order.status === 'confirmed';
   const canRequestCancellation = order.status === 'in_progress' || order.status === 'shipped';
   const canApproveThis = order.status === 'pending' && canApprove(order.store_id);
+  const canEdit = order.status === 'pending';
+
+  function startEdit() {
+    cart.startEditingOrder(order!.id, order!.store_id);
+    navigate('/cart');
+  }
 
   return (
     <div className="flex max-w-3xl flex-col gap-4">
@@ -219,6 +227,12 @@ export default function OrderDetail() {
               Confirm
             </Button>
           </>
+        )}
+        {canEdit && (
+          <Button variant="secondary" onClick={startEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit order
+          </Button>
         )}
         {canCancelDirectly && (
           <Button

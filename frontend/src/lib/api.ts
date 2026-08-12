@@ -44,8 +44,14 @@ export interface CreateOrderInput {
   lines: Array<{ sku: string; description?: string; quantity: number; unit_price?: number }>;
 }
 
+export interface UpdateOrderInput {
+  notes?: string;
+  lines: Array<{ sku: string; description?: string; quantity: number; unit_price?: number }>;
+}
+
 export const ordersApi = {
   create: (input: CreateOrderInput) => request<Order>('POST', '/orders', input),
+  update: (id: string, input: UpdateOrderInput) => request<Order>('PATCH', `/orders/${id}`, input),
   list: (params: { status?: string; limit?: number; offset?: number } = {}) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);

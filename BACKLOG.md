@@ -61,6 +61,12 @@ picked up: total across the *currently filtered/visible* products, or
 something else -- worth a quick confirm before building rather than
 guessing.
 
+Also wanted on Approvals: a 1-click view per pending order (not just
+Cart/Catalog) so an admin can quickly see the jewellery-count
+breakdown for that specific order without opening its full detail
+page -- same underlying `quantity × jewellery_capacity` calc, just
+scoped to one order's lines instead of the whole cart.
+
 ## Product image upload + resize
 No staff-facing upload screen exists yet — images have to be inserted
 into the `product-images` Storage bucket directly. When built, auto-

@@ -57,6 +57,14 @@ router.delete(
   })
 );
 
+router.patch(
+  '/:id',
+  asyncHandler(async (req, res) => {
+    const order = await ordersService.updateOrder(req, req.params.id);
+    res.json(order);
+  })
+);
+
 router.post(
   '/:id/confirm',
   asyncHandler(async (req, res) => {

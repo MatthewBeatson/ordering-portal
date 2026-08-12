@@ -84,6 +84,7 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
 | GET    | `/orders`                         | Query: `?status=&limit=&offset=`                |
 | GET    | `/orders/:id`                     | Order + its lines                               |
 | DELETE | `/orders/:id`                     | Pre-sync only (`pending`/`confirmed`-unsynced)  |
+| PATCH  | `/orders/:id`                     | Body: `{ notes?, lines }`. `pending` only -- full replace of order_lines |
 | POST   | `/orders/:id/confirm`             | `pending` -> `confirmed`, then attempts Cin7 sync unless flagged |
 | POST   | `/orders/bulk/confirm`            | Body: `{ order_ids: [...] }`. Approves several at once; each order gets its own outcome — one being unapprovable/wrong-status doesn't block the rest |
 | POST   | `/orders/:id/reject`              | Body: `{ reason? }`. `pending` -> `rejected`    |
