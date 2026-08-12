@@ -44,7 +44,14 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
 - **in_progress**: entered *automatically* the moment a confirmed order
   successfully syncs to Cin7 as a Sale — no manual "start" step, and this
   applies to in-stock and made-to-order/backordered items alike (a
-  backorder is not an error, see `integrations/cin7/sync.js`).
+  backorder is not an error, see `integrations/cin7/sync.js`). Sync is
+  attempted **exactly once**, right when the order is confirmed (or when
+  a review flag clears) — there's no automatic retry. A failure leaves
+  the order at `confirmed` indefinitely with the reason recorded in
+  `inventory_sync.error_message`; `GET /orders/:id` includes this as
+  `inventory_sync` for staff (not exposed to non-staff, same boundary as
+  the review-hold fields), and `POST /orders/:id/retry-sync` (staff
+  only) re-attempts it.
 - **Review hold**: Shonrei staff can flag an order (`POST /orders/:id/flag`)
   before it syncs; while `flagged_for_review` is true the order stays at
   `confirmed` and the sync attempt is skipped entirely. Clearing the flag
@@ -81,6 +88,7 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
 | POST   | `/orders/:id/reject`              | Body: `{ reason? }`. `pending` -> `rejected`    |
 | POST   | `/orders/:id/flag`                | Staff only. Body: `{ reason? }`                 |
 | POST   | `/orders/:id/clear-flag`          | Staff only. Triggers deferred sync if `confirmed` |
+| POST   | `/orders/:id/retry-sync`          | Staff only. Manual re-attempt for a `confirmed` order stuck after a failed/never-attempted sync — there's no automatic retry |
 | POST   | `/orders/bulk/ship`               | Staff only. Body: `{ order_ids: [...] }`        |
 | POST   | `/orders/:id/request-cancellation`| Body: `{ reason? }`. Post-sync only             |
 | POST   | `/orders/:id/resolve-cancellation`| Staff only. Body: `{ approve: boolean }`        |

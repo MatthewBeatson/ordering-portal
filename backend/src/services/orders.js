@@ -172,7 +172,38 @@ async function getOrder(req, orderId) {
     .order('created_at', { ascending: true });
   if (linesErr) throw new ApiError(500, 'Failed to fetch order lines', linesErr.message);
 
-  return { ...sanitizeOrder(order, req.roles.isPortalAdmin), order_lines: lines };
+  const result = { ...sanitizeOrder(order, req.roles.isPortalAdmin), order_lines: lines };
+
+  // Sync status is Shonrei-internal infrastructure detail -- same
+  // staff-only boundary as flagged_for_review, not client-facing.
+  if (req.roles.isPortalAdmin) {
+    const { data: sync } = await supabaseAdmin
+      .from('inventory_sync')
+      .select('provider, status, external_id, error_message, synced_at')
+      .eq('order_id', orderId)
+      .eq('provider', 'cin7')
+      .maybeSingle();
+    result.inventory_sync = sync || null;
+  }
+
+  return result;
+}
+
+// Staff-only manual re-attempt for an order stuck at 'confirmed' after a
+// failed (or never-attempted) sync -- there's no automatic retry, so
+// this is the only way to try again without re-flagging/re-clearing as
+// a workaround.
+async function retrySync(req, orderId) {
+  requireStaff(req);
+  const order = await fetchOrder(orderId);
+
+  if (order.status !== 'confirmed') {
+    throw new ApiError(409, `Only 'confirmed' orders can be retried (this order is '${order.status}')`);
+  }
+
+  const synced = await syncOrderToCin7(order);
+  await logEvent(orderId, req.user.id, 'sync_retried', null);
+  return sanitizeOrder(synced || order, req.roles.isPortalAdmin);
 }
 
 // pending -> confirmed. "Confirmed" = a client-admin has approved the
@@ -424,4 +455,5 @@ module.exports = {
   requestCancellation,
   resolveCancellation,
   deleteOrder,
+  retrySync,
 };

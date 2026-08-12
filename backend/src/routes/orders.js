@@ -82,6 +82,14 @@ router.post(
 );
 
 router.post(
+  '/:id/retry-sync',
+  asyncHandler(async (req, res) => {
+    const order = await ordersService.retrySync(req, req.params.id);
+    res.json(order);
+  })
+);
+
+router.post(
   '/:id/request-cancellation',
   asyncHandler(async (req, res) => {
     const order = await ordersService.requestCancellation(req, req.params.id);
