@@ -87,6 +87,37 @@ async function logEvent(orderId, actorId, eventType, detail) {
   await supabaseAdmin.from('order_events').insert({ order_id: orderId, actor_id: actorId, event_type: eventType, detail });
 }
 
+// Defense-in-depth: even though the Catalog page only ever shows a
+// client's own curated products (013_per_client_portal_products.sql),
+// this is the actual enforcement point -- nothing reaches order_lines
+// unless every SKU is genuinely curated for the target client. Closes
+// the gap a UI bug, stale cache, or a future screen could otherwise
+// open (e.g. a staff member testing as one client's store must never
+// be able to accidentally order another client's product onto it).
+async function findSkusNotCuratedForClient(clientId, skus) {
+  const uniqueSkus = [...new Set(skus)];
+  const { data: products, error: prodErr } = await supabaseAdmin.from('products').select('id, sku').in('sku', uniqueSkus);
+  if (prodErr) throw new ApiError(500, 'Failed to validate order lines', prodErr.message);
+
+  const productIdBySku = new Map(products.map((p) => [p.sku, p.id]));
+  const unknownSkus = uniqueSkus.filter((sku) => !productIdBySku.has(sku));
+
+  const productIds = [...productIdBySku.values()];
+  let curatedProductIds = new Set();
+  if (productIds.length > 0) {
+    const { data: curated, error: curatedErr } = await supabaseAdmin
+      .from('client_portal_products')
+      .select('product_id')
+      .eq('client_id', clientId)
+      .in('product_id', productIds);
+    if (curatedErr) throw new ApiError(500, 'Failed to validate order lines', curatedErr.message);
+    curatedProductIds = new Set(curated.map((c) => c.product_id));
+  }
+
+  const notCurated = [...productIdBySku.entries()].filter(([, id]) => !curatedProductIds.has(id)).map(([sku]) => sku);
+  return [...new Set([...unknownSkus, ...notCurated])];
+}
+
 async function createOrder(req) {
   const { storeId, notes, lines } = validateCreateInput(req.body);
 
@@ -95,6 +126,14 @@ async function createOrder(req) {
   const hasAccess = await checkStoreAccess(req.supabaseUser, storeId);
   if (!hasAccess) {
     throw new ApiError(403, 'You do not have access to this store');
+  }
+
+  const { data: store, error: storeErr } = await supabaseAdmin.from('stores').select('client_id').eq('id', storeId).maybeSingle();
+  if (storeErr || !store) throw new ApiError(400, 'Invalid store_id');
+
+  const invalidSkus = await findSkusNotCuratedForClient(store.client_id, lines.map((l) => l.sku));
+  if (invalidSkus.length > 0) {
+    throw new ApiError(400, "These SKUs aren't available on this client's portal", invalidSkus);
   }
 
   const { data: order, error: orderErr } = await supabaseAdmin
