@@ -62,6 +62,12 @@ async function createSaleHeader(order, store, client) {
     ExternalID: order.idempotency_key,
     CustomerReference: order.reference || undefined,
     TaxRule: client.cin7_tax_rule,
+    // Required whenever the customer's currency differs from the org's
+    // base currency (confirmed via Cin7's own Sale POST field docs) --
+    // clients.cin7_currency_rate defaults to 1 (Cin7's own default),
+    // staff-set per client for anything non-NZD (005_client_tax.sql's
+    // sibling column, 015_client_currency_rate.sql).
+    CurrencyRate: client.cin7_currency_rate ?? 1,
     ShippingAddress: {
       Line1: store.cin7_address_line1,
       Line2: store.cin7_address_line2 || undefined,
