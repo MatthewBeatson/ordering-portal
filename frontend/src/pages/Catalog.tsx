@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
+import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
 import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
 
@@ -18,6 +19,8 @@ type GroupMode = 'type' | 'display';
 export default function Catalog() {
   const cart = useCart();
   const { data: stores, isLoading: storesLoading } = useMyStores();
+  const [imageSize, setImageSize] = React.useState<ImageSize>('small');
+  const showImages = imageSize !== 'hide';
 
   // Default to the user's only/first store once loaded.
   React.useEffect(() => {
@@ -144,29 +147,32 @@ export default function Catalog() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">Catalog</h1>
 
-        {stores.length > 1 && (
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-[var(--muted-foreground)]">Ordering for</span>
-            <select
-              className="h-9 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
-              value={cart.storeId ?? ''}
-              onChange={(e) => {
-                if (cart.lines.length > 0 && e.target.value !== cart.storeId) {
-                  const ok = window.confirm('Switching store will clear your current cart. Continue?');
-                  if (!ok) return;
-                  cart.clear();
-                }
-                cart.setStore(e.target.value);
-              }}
-            >
-              {stores.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        <div className="flex items-center gap-3">
+          {stores.length > 1 && (
+            <label className="flex items-center gap-2 text-sm">
+              <span className="text-[var(--muted-foreground)]">Ordering for</span>
+              <select
+                className="h-9 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                value={cart.storeId ?? ''}
+                onChange={(e) => {
+                  if (cart.lines.length > 0 && e.target.value !== cart.storeId) {
+                    const ok = window.confirm('Switching store will clear your current cart. Continue?');
+                    if (!ok) return;
+                    cart.clear();
+                  }
+                  cart.setStore(e.target.value);
+                }}
+              >
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <ImageSizeToggle value={imageSize} onChange={setImageSize} />
+        </div>
       </div>
 
       {/* Two clearly separate sections: browse/search on the left, the
@@ -243,7 +249,7 @@ export default function Catalog() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
-                      <th className="w-24 px-4 py-2 font-medium"></th>
+                      {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
                       <th className="px-2 py-2 font-medium">Our SKU</th>
                       <th className="px-2 py-2 font-medium">Client SKU</th>
                       <th className="px-2 py-2 font-medium">Product</th>
@@ -259,17 +265,19 @@ export default function Catalog() {
                       const clientSku = clientSkuByProduct.get(p.id);
                       return (
                         <tr key={p.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
-                          <td className="px-4 py-2">
-                            {thumb ? (
-                              <img
-                                src={productImageUrl(thumb.storage_path) ?? undefined}
-                                alt={thumb.alt_text ?? p.name}
-                                className="h-20 w-20 rounded object-cover"
-                              />
-                            ) : (
-                              <div className="h-20 w-20 rounded bg-[var(--muted)]" />
-                            )}
-                          </td>
+                          {showImages && (
+                            <td className="px-4 py-2">
+                              {thumb ? (
+                                <img
+                                  src={productImageUrl(thumb.storage_path) ?? undefined}
+                                  alt={thumb.alt_text ?? p.name}
+                                  className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`}
+                                />
+                              ) : (
+                                <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
+                              )}
+                            </td>
+                          )}
                           <td className="px-2 py-2 font-mono text-xs">{p.sku}</td>
                           <td className="px-2 py-2 font-mono text-xs">{clientSku ?? <span className="text-[var(--muted-foreground)]">—</span>}</td>
                           <td className="px-2 py-2">

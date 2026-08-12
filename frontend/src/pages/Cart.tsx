@@ -23,7 +23,10 @@ export default function Cart() {
   const navigate = useNavigate();
   const [notes, setNotes] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
-  const [imageSize, setImageSize] = React.useState<ImageSize>('hide');
+  // No "hide" option on Cart, deliberately -- a buyer should never be
+  // able to lose sight of what they're actually about to submit vs.
+  // what they think they're ordering. Always at least "small".
+  const [imageSize, setImageSize] = React.useState<ImageSize>('small');
   const showImages = imageSize !== 'hide';
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
@@ -68,7 +71,7 @@ export default function Cart() {
         <h1 className="text-lg font-semibold">Cart</h1>
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
-          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} />}
+          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} allowHide={false} />}
         </div>
       </div>
 
