@@ -92,8 +92,30 @@ export interface ManageableStore {
   clients: { name: string } | null;
 }
 
+export interface CreateStoreInput {
+  client_id: string;
+  name: string;
+  store_number?: string;
+  cin7_address_line1: string;
+  cin7_address_line2?: string;
+  cin7_address_city?: string;
+  cin7_address_state?: string;
+  cin7_address_postcode?: string;
+  cin7_address_country?: string;
+}
+
 export const storesApi = {
   listManageable: () => request<{ stores: ManageableStore[] }>('GET', '/stores'),
   updateStoreNumber: (id: string, storeNumber: string) =>
     request<ManageableStore>('PATCH', `/stores/${id}/store-number`, { store_number: storeNumber }),
+  create: (input: CreateStoreInput) => request<ManageableStore>('POST', '/stores', input),
+};
+
+export interface ManageableClient {
+  id: string;
+  name: string;
+}
+
+export const clientsApi = {
+  listManageable: () => request<{ clients: ManageableClient[] }>('GET', '/clients'),
 };

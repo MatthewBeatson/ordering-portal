@@ -7,6 +7,14 @@ const router = Router();
 
 router.use(requireAuth);
 
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    const clients = await clientsService.listManageableClients(req);
+    res.json({ clients });
+  })
+);
+
 router.post(
   '/:id/sync-addresses',
   asyncHandler(async (req, res) => {

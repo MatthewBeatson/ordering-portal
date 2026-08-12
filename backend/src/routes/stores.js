@@ -23,4 +23,12 @@ router.patch(
   })
 );
 
+router.post(
+  '/',
+  asyncHandler(async (req, res) => {
+    const store = await storesService.createStore(req, req.body);
+    res.status(201).json(store);
+  })
+);
+
 module.exports = router;

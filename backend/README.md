@@ -97,8 +97,10 @@ Backend for the Shonrei multi-store B2B ordering portal. Express +
 | POST   | `/products/:id/add-to-portal`     | Staff only. Body: `{ client_id }`. Per-client — see below |
 | POST   | `/products/:id/remove-from-portal`| Staff only. Body: `{ client_id }`               |
 | POST   | `/products/bulk/add-to-portal`    | Staff only. Body: `{ product_ids: [...], client_id }` |
+| GET    | `/clients`                        | Clients the caller can manage (own client(s), or all for staff) |
 | GET    | `/stores`                         | Stores the caller can manage (own client's, or all for staff) |
 | PATCH  | `/stores/:id/store-number`        | Body: `{ store_number }`. Client-admin of that store's client, or staff |
+| POST   | `/stores`                         | Body: `{ client_id, name, store_number?, cin7_address_line1, cin7_address_line2?, cin7_address_city?, cin7_address_state?, cin7_address_postcode?, cin7_address_country? }`. Client-admin of that client, or staff. `cin7_address_line1` required -- a store with no address can never sync an order |
 | POST   | `/webhooks/cin7`                  | Cin7 callback receiver — bearer token, not a Supabase JWT |
 
 ## Product curation (`src/services/products.js`)
