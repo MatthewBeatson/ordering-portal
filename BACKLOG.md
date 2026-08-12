@@ -13,25 +13,23 @@ decide whether to mirror that onto `clients` or derive it another way,
 then thread it through to every price display.
 
 ## Order reference presets + address pull-through
+- ~~Mirror a client's Cin7 addresses~~ — **done** (`014_client_addresses.sql`
+  + `POST /clients/:id/sync-addresses`): Cart shows the client's default
+  address, read-only. Still open: letting a buyer pick a *non-default*
+  address per order and feeding that choice into the Cin7 Sale at sync
+  time (today's sync always uses the store's original pinned address,
+  not the mirrored ones).
 - Store search box (type-to-filter, not a plain dropdown) for picking
   which store/order to build a cart against — matters once a client
-  has many stores.
+  has many stores. Not built; Catalog/Cart still use a plain `<select>`.
 - Auto-generate `orders.reference` at **confirm time** (not creation
   time) as `{store_number} ({confirm date DD.MM.YY})` — store_number
-  should hold the client's own full preformatted code (e.g. `PR#346`),
-  not just a bare number. Already flows through to Cin7 as
+  can now hold the client's own full preformatted code (e.g. `PR#346`)
+  since the Account page (`/account`) lets client-admins/staff set it
+  directly. The auto-generation itself isn't built yet — `reference`
+  still has to be set by hand. Already flows through to Cin7 as
   `CustomerReference` once set (see `backend/src/integrations/cin7/
   client.js`).
-- Mirror a client's Cin7 addresses (`Addresses` collection — confirmed
-  real, supports multiple addresses with `Type`/`DefaultForType`) into
-  a new Supabase table, default to Cin7's `DefaultForType` shipping
-  address, let the buyer pick an alternate if one exists. Replaces
-  today's one-address-per-store manual pin
-  (`stores.cin7_address_*`, set once by a human, never synced).
-
-Now that 3 realistic clients exist ([[large_client_test_setup]] /
-`013_per_client_portal_products.sql` era), this is unblocked — user
-said "help me through this process sometime once 3x clients set up."
 
 ## Bulk pending-order grid/grouped view
 Bulk select + confirm already shipped on the Approvals list (checkbox
@@ -41,6 +39,27 @@ pending orders in one grid, so an approver reviews volume rather than
 order-by-order. Needs a proper design pass first (how ties/duplicate
 SKUs across orders get shown, whether quantities sum or stay
 per-order) — same kind of mockup exercise as the Catalog grouping was.
+
+## Jewellery-count breakdown table (Catalog + Cart)
+Once Attributes 1-3 (Type/Jewellery held/Colour, `018_product_jewellery_types.sql`
+era) are actually populated in Cin7 and synced -- **Attribute 5** (Numeric
+type, up to 4 decimal places, confirmed supported by Cin7) becomes each
+product's jewellery-item capacity, e.g. "this tray displays 12 rings."
+Deliberately NOT parsed from the free-text description -- too
+unreliable, a real numeric field is the correct source.
+
+`products.jewellery_capacity` (nullable numeric) synced the same way
+as the other Attribute-sourced fields, paired with the product's own
+`jewellery_type_id` (Attribute 2) to know *what* it's a count of.
+
+A small toggle-able table (Show/Hide, same interaction as
+`ImageSizeToggle`) on both Cart and Catalog: sums `quantity ×
+jewellery_capacity` grouped by jewellery type (Rings / Earrings /
+Pendants / ...). Cart's version is unambiguous -- it's exactly what's
+in the cart. Catalog's meaning needs a design decision when this is
+picked up: total across the *currently filtered/visible* products, or
+something else -- worth a quick confirm before building rather than
+guessing.
 
 ## Product image upload + resize
 No staff-facing upload screen exists yet — images have to be inserted
