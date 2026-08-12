@@ -1,23 +1,17 @@
 import * as React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase, productImageUrl } from '@/lib/supabase';
+import { productImageUrl } from '@/lib/supabase';
 import { useCart } from '@/lib/CartContext';
 import { useMyStores } from '@/lib/useStores';
-import { parseTierNumber, tierPrice } from '@/lib/pricing';
+import { useClientCatalog, type ProductRow } from '@/lib/useClientCatalog';
+import { tierPrice } from '@/lib/pricing';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
-import type { Client, ClientProductSku, DisplaySystem, Product, ProductType } from '@/lib/types';
+import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
-
-type ProductRow = Product & {
-  product_images: { storage_path: string; display_order: number; alt_text: string | null }[];
-  product_types: Pick<ProductType, 'id' | 'name' | 'display_order'> | null;
-  display_systems: Pick<DisplaySystem, 'id' | 'name' | 'display_order'> | null;
-};
 
 type GroupMode = 'type' | 'display';
 
@@ -33,68 +27,7 @@ export default function Catalog() {
   }, [stores, cart]);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId) ?? null;
-
-  const { data: client } = useQuery({
-    queryKey: ['client', currentStore?.client_id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('clients')
-        .select('id, name, cin7_price_tier')
-        .eq('id', currentStore!.client_id)
-        .single();
-      if (error) throw error;
-      return data as Client;
-    },
-    enabled: !!currentStore,
-  });
-  const tierNumber = parseTierNumber(client?.cin7_price_tier);
-
-  const { data: clientSkus } = useQuery({
-    queryKey: ['client-product-skus', currentStore?.client_id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('client_product_skus')
-        .select('client_id, product_id, client_sku')
-        .eq('client_id', currentStore!.client_id);
-      if (error) throw error;
-      return data as ClientProductSku[];
-    },
-    enabled: !!currentStore,
-  });
-  const clientSkuByProduct = React.useMemo(() => {
-    const map = new Map<string, string>();
-    for (const row of clientSkus ?? []) map.set(row.product_id, row.client_sku);
-    return map;
-  }, [clientSkus]);
-
-  const {
-    data: products,
-    isLoading: productsLoading,
-    error: productsError,
-  } = useQuery({
-    queryKey: ['catalog-products', currentStore?.client_id],
-    queryFn: async () => {
-      // Deliberately queried FROM client_portal_products, not products
-      // filtered by RLS -- the products RLS policy lets is_portal_admin
-      // see the entire uncurated Cin7 mirror (needed for the curation
-      // screen's search), and that bypass must never leak into this
-      // buyer-facing page. A staff member testing as a given store must
-      // see exactly what's curated for that store's client, same as a
-      // real buyer would -- never "everything in Cin7."
-      const { data, error } = await supabase
-        .from('client_portal_products')
-        .select(
-          'product_id, products(*, product_images(storage_path, display_order, alt_text), product_types(id, name, display_order), display_systems(id, name, display_order))'
-        )
-        .eq('client_id', currentStore!.client_id);
-      if (error) throw error;
-      return (data ?? [])
-        .map((row) => row.products as unknown as ProductRow)
-        .filter((p): p is ProductRow => !!p && p.is_active)
-        .sort((a, b) => a.name.localeCompare(b.name));
-    },
-    enabled: !!currentStore,
-  });
+  const { tierNumber, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
 
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
@@ -236,49 +169,61 @@ export default function Catalog() {
         )}
       </div>
 
-      {products && products.length > 0 && (
-        <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} />
-      )}
+      {/* Two clearly separate sections: browse/search on the left, the
+          rapid-entry quick-add bar on the right -- deliberately not
+          styled the same way as each other so they don't get confused
+          for one search box. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
+        <div className="flex flex-col gap-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Browse &amp; search</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <Input
+                placeholder="Search SKU, name, description..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9"
+              />
+            </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full max-w-sm">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
-          <Input
-            placeholder="Search SKU, name, description..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+            <div className="flex overflow-hidden rounded-[var(--radius)] border border-[var(--border-strong)]">
+              <button
+                onClick={() => setGroupMode('display')}
+                className={`px-3 py-1.5 text-sm font-medium ${groupMode === 'display' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
+              >
+                By display system
+              </button>
+              <button
+                onClick={() => setGroupMode('type')}
+                className={`border-l border-[var(--border-strong)] px-3 py-1.5 text-sm font-medium ${groupMode === 'type' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
+              >
+                By product type
+              </button>
+            </div>
+          </div>
+
+          {groupMode === 'display' && displaySystemChips.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setSelectedDisplaySystemId(null)}>
+                <Badge tone={selectedDisplaySystemId === null ? 'accent' : 'muted'}>All</Badge>
+              </button>
+              {displaySystemChips.map((ds) => (
+                <button key={ds.id} onClick={() => setSelectedDisplaySystemId(ds.id)}>
+                  <Badge tone={selectedDisplaySystemId === ds.id ? 'accent' : 'muted'}>{ds.name}</Badge>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="flex overflow-hidden rounded-[var(--radius)] border border-[var(--border-strong)]">
-          <button
-            onClick={() => setGroupMode('display')}
-            className={`px-3 py-1.5 text-sm font-medium ${groupMode === 'display' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
-          >
-            By display system
-          </button>
-          <button
-            onClick={() => setGroupMode('type')}
-            className={`border-l border-[var(--border-strong)] px-3 py-1.5 text-sm font-medium ${groupMode === 'type' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
-          >
-            By product type
-          </button>
-        </div>
+        {products && products.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
+            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} />
+          </div>
+        )}
       </div>
-
-      {groupMode === 'display' && displaySystemChips.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <button onClick={() => setSelectedDisplaySystemId(null)}>
-            <Badge tone={selectedDisplaySystemId === null ? 'accent' : 'muted'}>All</Badge>
-          </button>
-          {displaySystemChips.map((ds) => (
-            <button key={ds.id} onClick={() => setSelectedDisplaySystemId(ds.id)}>
-              <Badge tone={selectedDisplaySystemId === ds.id ? 'accent' : 'muted'}>{ds.name}</Badge>
-            </button>
-          ))}
-        </div>
-      )}
 
       {groups.length === 0 && (
         <Card className="p-6 text-sm text-[var(--muted-foreground)]">No products match your search.</Card>

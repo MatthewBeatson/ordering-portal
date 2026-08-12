@@ -4,6 +4,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCart } from '@/lib/CartContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
+import { useClientCatalog } from '@/lib/useClientCatalog';
 import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -12,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
+import { QuickOrderBar } from '@/components/QuickOrderBar';
 import type { ClientAddress } from '@/lib/types';
 import { Trash2, MapPin } from 'lucide-react';
 
@@ -26,6 +28,7 @@ export default function Cart() {
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
+  const { tierNumber, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
 
   const { data: addresses } = useQuery({
     queryKey: ['client-addresses', currentStore?.client_id],
@@ -57,14 +60,7 @@ export default function Cart() {
 
   const total = cart.lines.reduce((sum, l) => sum + (l.unit_price ?? 0) * l.quantity, 0);
   const hasPricing = cart.lines.some((l) => l.unit_price != null);
-
-  if (cart.lines.length === 0) {
-    return (
-      <Card className="p-6 text-sm text-[var(--muted-foreground)]">
-        Your cart is empty. Add products from the <a href="/" className="text-[var(--accent)] hover:underline">catalog</a>.
-      </Card>
-    );
-  }
+  const isEmpty = cart.lines.length === 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -72,10 +68,23 @@ export default function Cart() {
         <h1 className="text-lg font-semibold">Cart</h1>
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
-          <ImageSizeToggle value={imageSize} onChange={setImageSize} />
+          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} />}
         </div>
       </div>
 
+      {products && products.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
+          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} />
+        </div>
+      )}
+
+      {isEmpty ? (
+        <Card className="p-6 text-sm text-[var(--muted-foreground)]">
+          Your cart is empty. Add products above, or from the <a href="/" className="text-[var(--accent)] hover:underline">catalog</a>.
+        </Card>
+      ) : (
+        <>
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
           <thead>
@@ -183,6 +192,8 @@ export default function Cart() {
           {submit.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : 'Submit order'}
         </Button>
       </div>
+        </>
+      )}
     </div>
   );
 }
