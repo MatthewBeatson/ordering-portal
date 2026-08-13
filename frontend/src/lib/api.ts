@@ -10,16 +10,7 @@ async function authHeader(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers = await authHeader();
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
-
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-
+async function handleResponse<T>(res: Response): Promise<T> {
   const text = await res.text();
   let payload: unknown = null;
   try {
@@ -36,6 +27,30 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
 
   return payload as T;
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers = await authHeader();
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+
+  return handleResponse<T>(res);
+}
+
+// Deliberately not JSON -- multipart/form-data, and no Content-Type set
+// manually so the browser fills in the correct boundary itself.
+async function requestFile<T>(method: string, path: string, file: File): Promise<T> {
+  const headers = await authHeader();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { method, headers, body: formData });
+  return handleResponse<T>(res);
 }
 
 export interface CreateOrderInput {
@@ -78,6 +93,14 @@ export interface PortalProductResult {
   added_to_portal: boolean;
 }
 
+export interface UploadedProductImage {
+  id: string;
+  product_id: string;
+  storage_path: string;
+  alt_text: string | null;
+  display_order: number;
+}
+
 export const productsApi = {
   sync: () => request<{ synced: number; failed: number; total: number }>('POST', '/products/sync'),
   addToPortal: (id: string, clientId: string) => request<PortalProductResult>('POST', `/products/${id}/add-to-portal`, { client_id: clientId }),
@@ -88,6 +111,8 @@ export const productsApi = {
       product_ids: productIds,
       client_id: clientId,
     }),
+  uploadImage: (productId: string, file: File) => requestFile<UploadedProductImage>('POST', `/products/${productId}/images`, file),
+  deleteImage: (imageId: string) => request<void>('DELETE', `/products/images/${imageId}`),
 };
 
 export interface ManageableStore {

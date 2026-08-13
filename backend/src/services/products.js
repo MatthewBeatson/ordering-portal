@@ -1,6 +1,11 @@
+const crypto = require('crypto');
 const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
 const { syncProducts } = require('../integrations/cin7/productSync');
+
+const IMAGE_BUCKET = 'product-images';
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
+const ALLOWED_IMAGE_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 
 // Reads (both the buyer catalog and the staff curation search) go
 // straight through Supabase + RLS, not this API -- 013's SELECT policy
@@ -70,4 +75,64 @@ async function bulkAddToPortal(req) {
   return { client_id: clientId, added: data };
 }
 
-module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal };
+// Goes through the backend (service_role) deliberately -- the
+// product-images Storage bucket has no client-side write policy at
+// all (confirmed: zero policies on storage.objects for it), same
+// lockdown reasoning as every other write in this app. Images append
+// (a product can have several, product_images.display_order controls
+// which shows first) rather than replacing whatever's already there.
+async function uploadImage(req, productId) {
+  requireStaff(req);
+  const file = req.file;
+  if (!file) throw new ApiError(400, 'No file uploaded (expected multipart field "file")');
+  if (file.size > MAX_IMAGE_BYTES) throw new ApiError(400, `Image too large (max ${MAX_IMAGE_BYTES / (1024 * 1024)}MB)`);
+  const ext = ALLOWED_IMAGE_EXT[file.mimetype];
+  if (!ext) throw new ApiError(400, `Unsupported image type "${file.mimetype}" -- use JPEG, PNG, WEBP, or GIF`);
+
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('product_images')
+    .select('display_order')
+    .eq('product_id', productId)
+    .order('display_order', { ascending: false })
+    .limit(1);
+  if (existingErr) throw new ApiError(500, 'Failed to check existing images', existingErr.message);
+  const nextOrder = existing.length > 0 ? existing[0].display_order + 1 : 0;
+
+  const storagePath = `${productId}/${crypto.randomUUID()}.${ext}`;
+  const { error: uploadErr } = await supabaseAdmin.storage.from(IMAGE_BUCKET).upload(storagePath, file.buffer, {
+    contentType: file.mimetype,
+    upsert: false,
+  });
+  if (uploadErr) throw new ApiError(500, 'Failed to upload image', uploadErr.message);
+
+  const { data: row, error: insertErr } = await supabaseAdmin
+    .from('product_images')
+    .insert({ product_id: productId, storage_path: storagePath, display_order: nextOrder })
+    .select()
+    .single();
+  if (insertErr) {
+    // Best-effort cleanup so a failed insert doesn't leave an orphaned
+    // Storage object behind.
+    await supabaseAdmin.storage.from(IMAGE_BUCKET).remove([storagePath]);
+    throw new ApiError(500, 'Failed to save image record', insertErr.message);
+  }
+  return row;
+}
+
+async function deleteImage(req, imageId) {
+  requireStaff(req);
+  const { data: image, error: fetchErr } = await supabaseAdmin.from('product_images').select('id, storage_path').eq('id', imageId).maybeSingle();
+  if (fetchErr) throw new ApiError(500, 'Failed to load image', fetchErr.message);
+  if (!image) throw new ApiError(404, 'Image not found');
+
+  const { error: deleteRowErr } = await supabaseAdmin.from('product_images').delete().eq('id', imageId);
+  if (deleteRowErr) throw new ApiError(500, 'Failed to delete image record', deleteRowErr.message);
+
+  // Not fatal if this fails -- the DB row (what controls display) is
+  // already gone; a leftover Storage object is wasted space, not a
+  // correctness problem.
+  const { error: removeErr } = await supabaseAdmin.storage.from(IMAGE_BUCKET).remove([image.storage_path]);
+  if (removeErr) console.error(`[products] failed to remove storage object ${image.storage_path}:`, removeErr.message);
+}
+
+module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal, uploadImage, deleteImage };

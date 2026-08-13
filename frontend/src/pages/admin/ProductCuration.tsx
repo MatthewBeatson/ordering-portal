@@ -1,18 +1,19 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { supabase, productImageUrl } from '@/lib/supabase';
 import { productsApi } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
-import type { Client, DisplaySystem, Product, ProductType } from '@/lib/types';
-import { RefreshCw, Search } from 'lucide-react';
+import type { Client, DisplaySystem, Product, ProductImage, ProductType } from '@/lib/types';
+import { RefreshCw, Search, Upload, X } from 'lucide-react';
 
 type ProductRow = Product & {
   product_types: Pick<ProductType, 'id' | 'name'> | null;
   display_systems: Pick<DisplaySystem, 'id' | 'name'> | null;
+  product_images: Pick<ProductImage, 'id' | 'storage_path' | 'display_order'>[];
 };
 
 type PortalFilter = 'all' | 'in_portal' | 'not_in_portal';
@@ -85,7 +86,7 @@ export default function ProductCuration() {
     queryFn: async () => {
       let query = supabase
         .from('products')
-        .select('*, product_types(id, name), display_systems(id, name)')
+        .select('*, product_types(id, name), display_systems(id, name), product_images(id, storage_path, display_order)')
         .order('name')
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
@@ -142,6 +143,30 @@ export default function ProductCuration() {
     onSuccess: (result) => {
       setSyncResult(`Synced ${result.synced}/${result.total} product(s)${result.failed ? `, ${result.failed} failed` : ''}.`);
       queryClient.invalidateQueries({ queryKey: ['admin-products-search'] });
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  // Updates local `rows` state directly rather than invalidating the
+  // paginated search query -- that query's pages get concatenated into
+  // `rows` by page number (see the effect above), so invalidating a
+  // page > 0 would re-append instead of replace and duplicate rows.
+  // We already know the exact result of an upload/delete, so there's
+  // no need to round-trip through a refetch anyway.
+  const uploadImage = useMutation({
+    mutationFn: ({ productId, file }: { productId: string; file: File }) => productsApi.uploadImage(productId, file),
+    onSuccess: (image) => {
+      setRows((prev) => prev.map((p) => (p.id === image.product_id ? { ...p, product_images: [...p.product_images, image] } : p)));
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  const deleteImage = useMutation({
+    mutationFn: ({ imageId }: { productId: string; imageId: string }) => productsApi.deleteImage(imageId),
+    onSuccess: (_data, { productId, imageId }) => {
+      setRows((prev) =>
+        prev.map((p) => (p.id === productId ? { ...p, product_images: p.product_images.filter((img) => img.id !== imageId) } : p))
+      );
     },
     onError: (err: Error) => setActionError(err.message),
   });
@@ -248,6 +273,7 @@ export default function ProductCuration() {
                   <th className="w-10 px-4 py-2">
                     <input type="checkbox" checked={filtered.length > 0 && filtered.every((p) => selected.has(p.id))} onChange={toggleSelectAllVisible} />
                   </th>
+                  <th className="w-16 px-2 py-2 font-medium"></th>
                   <th className="px-2 py-2 font-medium">SKU</th>
                   <th className="px-2 py-2 font-medium">Name</th>
                   <th className="px-2 py-2 font-medium">Category</th>
@@ -264,6 +290,14 @@ export default function ProductCuration() {
                     <tr key={p.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
                       <td className="px-4 py-2">
                         <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} />
+                      </td>
+                      <td className="px-2 py-2">
+                        <ProductImageCell
+                          product={p}
+                          uploading={uploadImage.isPending && uploadImage.variables?.productId === p.id}
+                          onUpload={(file) => uploadImage.mutate({ productId: p.id, file })}
+                          onDelete={(imageId) => deleteImage.mutate({ productId: p.id, imageId })}
+                        />
                       </td>
                       <td className="px-2 py-2 font-mono text-xs">{p.sku}</td>
                       <td className="px-2 py-2">{p.name}</td>
@@ -299,6 +333,80 @@ export default function ProductCuration() {
             </div>
           )}
         </Card>
+      )}
+    </div>
+  );
+}
+
+// Click-to-upload thumbnail, same pattern as an avatar picker: click
+// the image (or the placeholder box if there isn't one yet) to open a
+// file picker; a small x overlay removes the current image. Only ever
+// shows/manages the first image by display_order -- a product having
+// several images is supported by the schema but not exposed in this
+// UI yet, one photo is enough for curation purposes.
+function ProductImageCell({
+  product,
+  uploading,
+  onUpload,
+  onDelete,
+}: {
+  product: ProductRow;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+  onDelete: (imageId: string) => void;
+}) {
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const thumb = [...product.product_images].sort((a, b) => a.display_order - b.display_order)[0];
+  const url = thumb ? productImageUrl(thumb.storage_path) : null;
+
+  return (
+    <div className="relative h-12 w-12">
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) onUpload(file);
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="group relative flex h-12 w-12 items-center justify-center overflow-hidden rounded bg-[var(--muted)]"
+        title={url ? 'Replace image' : 'Upload image'}
+      >
+        {url ? (
+          <img src={url} alt={product.name} className="h-full w-full object-cover" />
+        ) : (
+          <Upload className="h-4 w-4 text-[var(--muted-foreground)]" />
+        )}
+        {uploading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+            <Spinner className="h-4 w-4 border-white/30 border-t-white" />
+          </div>
+        )}
+        {!uploading && (
+          <div className="absolute inset-0 hidden items-center justify-center bg-black/40 group-hover:flex">
+            <Upload className="h-4 w-4 text-white" />
+          </div>
+        )}
+      </button>
+      {url && thumb && !uploading && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(thumb.id);
+          }}
+          title="Remove image"
+          className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
       )}
     </div>
   );
