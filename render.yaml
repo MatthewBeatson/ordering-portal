@@ -22,3 +22,27 @@ services:
         sync: false
       - key: CIN7_WEBHOOK_TOKEN
         sync: false
+
+  - type: web
+    name: ordering-portal-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    # React Router is client-side -- without this, refreshing on any
+    # route other than / (e.g. /cart, /orders/abc) 404s, because a
+    # plain static file server has no /cart file to serve. This routes
+    # every path back to index.html and lets the app's own router take
+    # it from there (the Vite dev server does this automatically, which
+    # is why it never came up locally).
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_API_BASE_URL
+        value: https://ordering-portal-api.onrender.com
