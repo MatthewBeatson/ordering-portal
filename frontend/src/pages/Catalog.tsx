@@ -302,7 +302,7 @@ export default function Catalog() {
           </div>
 
           {groupMode === 'display' && displaySystemChips.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button onClick={() => setSelectedDisplaySystemId(null)}>
                 <Badge tone={selectedDisplaySystemId === null ? 'accent' : 'muted'}>All</Badge>
               </button>
@@ -311,6 +311,14 @@ export default function Catalog() {
                   <Badge tone={selectedDisplaySystemId === ds.id ? 'accent' : 'muted'}>{ds.name}</Badge>
                 </button>
               ))}
+              {selectedDisplaySystemId !== null && (
+                <button
+                  onClick={() => setSelectedDisplaySystemId(null)}
+                  className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           )}
 
@@ -324,6 +332,14 @@ export default function Catalog() {
                       <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
                     </button>
                   ))}
+                  {facetSelections[facet.key].size > 0 && (
+                    <button
+                      onClick={() => setFacetSelections((prev) => ({ ...prev, [facet.key]: new Set<string>() }))}
+                      className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
+                    >
+                      Clear
+                    </button>
+                  )}
                 </div>
               ) : null
             )}
