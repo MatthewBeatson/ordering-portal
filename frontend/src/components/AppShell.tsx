@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/CartContext';
 import { cn } from '@/lib/utils';
-import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut, Settings } from 'lucide-react';
+import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut, Settings, ShieldCheck } from 'lucide-react';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -11,7 +11,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   );
 
 export function AppShell() {
-  const { isPortalAdmin, storeRoles, clientRoles, signOut, session } = useAuth();
+  const { isPortalAdmin, isSuperAdmin, storeRoles, clientRoles, signOut, session } = useAuth();
   const { count } = useCart();
 
   const canApproveAnything = isPortalAdmin || clientRoles.length > 0 || storeRoles.some((r) => r.role === 'store_admin');
@@ -46,6 +46,12 @@ export function AppShell() {
             <NavLink to="/admin/products" className={navLinkClass}>
               <Boxes className="h-4 w-4" />
               Product curation
+            </NavLink>
+          )}
+          {isSuperAdmin && (
+            <NavLink to="/admin/staff" className={navLinkClass}>
+              <ShieldCheck className="h-4 w-4" />
+              Staff
             </NavLink>
           )}
         </nav>

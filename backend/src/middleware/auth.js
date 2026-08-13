@@ -31,7 +31,7 @@ async function requireAuth(req, res, next) {
 
     const [{ data: userRow, error: userErr }, { data: storeRoles, error: storeErr }, { data: clientRoles, error: clientErr }] =
       await Promise.all([
-        supabaseAdmin.from('users').select('is_portal_admin').eq('id', user.id).maybeSingle(),
+        supabaseAdmin.from('users').select('is_portal_admin, is_super_admin').eq('id', user.id).maybeSingle(),
         supabaseAdmin.from('user_store_roles').select('store_id, role').eq('user_id', user.id),
         supabaseAdmin.from('user_client_roles').select('client_id, role').eq('user_id', user.id),
       ]);
@@ -45,6 +45,7 @@ async function requireAuth(req, res, next) {
     }
 
     const isPortalAdmin = userRow?.is_portal_admin === true;
+    const isSuperAdmin = userRow?.is_super_admin === true;
     const clientIds = (clientRoles || []).map((r) => r.client_id);
 
     let accessibleStoreIds = new Set((storeRoles || []).map((r) => r.store_id));
@@ -65,6 +66,7 @@ async function requireAuth(req, res, next) {
     req.user = { id: user.id, email: user.email };
     req.roles = {
       isPortalAdmin,
+      isSuperAdmin,
       storeRoles: storeRoles || [],
       clientRoles: clientRoles || [],
       accessibleStoreIds,

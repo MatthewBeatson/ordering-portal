@@ -150,3 +150,18 @@ export interface ManageableClient {
 export const clientsApi = {
   listManageable: () => request<{ clients: ManageableClient[] }>('GET', '/clients'),
 };
+
+export interface StaffMember {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_portal_admin: boolean;
+  is_super_admin: boolean;
+  created_at: string;
+}
+
+export const staffApi = {
+  list: () => request<{ staff: StaffMember[] }>('GET', '/staff'),
+  update: (id: string, input: { is_portal_admin?: boolean; is_super_admin?: boolean }) =>
+    request<StaffMember>('PATCH', `/staff/${id}`, input),
+};

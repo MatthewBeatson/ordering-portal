@@ -38,3 +38,21 @@ export function StaffOnlyRoute() {
 
   return <Outlet />;
 }
+
+export function SuperAdminOnlyRoute() {
+  const { isSuperAdmin, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Spinner className="h-6 w-6" />
+      </div>
+    );
+  }
+
+  if (!isSuperAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <Outlet />;
+}

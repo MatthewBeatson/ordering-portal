@@ -15,6 +15,7 @@ interface AuthState {
   session: Session | null;
   loading: boolean;
   isPortalAdmin: boolean;
+  isSuperAdmin: boolean;
   storeRoles: StoreRole[];
   clientRoles: ClientRole[];
   accessibleStoreIds: Set<string>;
@@ -30,18 +31,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = React.useState<Session | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [isPortalAdmin, setIsPortalAdmin] = React.useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = React.useState(false);
   const [storeRoles, setStoreRoles] = React.useState<StoreRole[]>([]);
   const [clientRoles, setClientRoles] = React.useState<ClientRole[]>([]);
   const [accessibleStoreIds, setAccessibleStoreIds] = React.useState<Set<string>>(new Set());
 
   const resolveRoles = React.useCallback(async (userId: string) => {
     const [{ data: userRow }, { data: storeRoleRows }, { data: clientRoleRows }] = await Promise.all([
-      supabase.from('users').select('is_portal_admin').eq('id', userId).maybeSingle(),
+      supabase.from('users').select('is_portal_admin, is_super_admin').eq('id', userId).maybeSingle(),
       supabase.from('user_store_roles').select('store_id, role').eq('user_id', userId),
       supabase.from('user_client_roles').select('client_id, role').eq('user_id', userId),
     ]);
 
     const admin = userRow?.is_portal_admin === true;
+    const superAdmin = userRow?.is_super_admin === true;
     const stores = (storeRoleRows ?? []) as StoreRole[];
     const clients = (clientRoleRows ?? []) as ClientRole[];
 
@@ -61,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     setIsPortalAdmin(admin);
+    setIsSuperAdmin(superAdmin);
     setStoreRoles(stores);
     setClientRoles(clients);
     setAccessibleStoreIds(accessible);
@@ -90,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         resolveRoles(newSession.user.id).finally(() => setLoading(false));
       } else {
         setIsPortalAdmin(false);
+        setIsSuperAdmin(false);
         setStoreRoles([]);
         setClientRoles([]);
         setAccessibleStoreIds(new Set());
@@ -123,6 +128,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     session,
     loading,
     isPortalAdmin,
+    isSuperAdmin,
     storeRoles,
     clientRoles,
     accessibleStoreIds,

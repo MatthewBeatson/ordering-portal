@@ -1,5 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
-import { ProtectedRoute, StaffOnlyRoute } from '@/components/ProtectedRoute';
+import { ProtectedRoute, StaffOnlyRoute, SuperAdminOnlyRoute } from '@/components/ProtectedRoute';
 import { AppShell } from '@/components/AppShell';
 import Login from '@/pages/Login';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -11,6 +11,7 @@ import OrderDetail from '@/pages/OrderDetail';
 import Approvals from '@/pages/Approvals';
 import Account from '@/pages/Account';
 import ProductCuration from '@/pages/admin/ProductCuration';
+import Staff from '@/pages/admin/Staff';
 import DevSession from '@/pages/DevSession';
 
 export default function App() {
@@ -32,6 +33,10 @@ export default function App() {
 
           <Route element={<StaffOnlyRoute />}>
             <Route path="/admin/products" element={<ProductCuration />} />
+          </Route>
+
+          <Route element={<SuperAdminOnlyRoute />}>
+            <Route path="/admin/staff" element={<Staff />} />
           </Route>
         </Route>
       </Route>
