@@ -97,6 +97,21 @@ async function updateStaffFlags(req, targetUserId, input) {
     throw new ApiError(409, 'You cannot remove your own admin/super-admin status -- ask another super admin to do it');
   }
 
+  // Staff and client-side roles (store/client) are mutually exclusive,
+  // by absolute guarantee -- this check just gives a clean error
+  // instead of the raw Postgres exception; the real enforcement is
+  // 020_staff_client_mutual_exclusion.sql's triggers, which hold
+  // regardless of what this function does.
+  if (isPortalAdmin && !target.is_portal_admin) {
+    const [{ count: storeRoleCount }, { count: clientRoleCount }] = await Promise.all([
+      supabaseAdmin.from('user_store_roles').select('id', { count: 'exact', head: true }).eq('user_id', targetUserId),
+      supabaseAdmin.from('user_client_roles').select('id', { count: 'exact', head: true }).eq('user_id', targetUserId),
+    ]);
+    if ((storeRoleCount ?? 0) > 0 || (clientRoleCount ?? 0) > 0) {
+      throw new ApiError(409, 'This user already holds a client-side role (store or client) -- staff access can never be granted to a client account');
+    }
+  }
+
   const { data, error } = await supabaseAdmin
     .from('users')
     .update({ is_portal_admin: isPortalAdmin, is_super_admin: isSuperAdmin })
