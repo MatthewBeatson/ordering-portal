@@ -26,6 +26,11 @@ export default function Staff() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['staff'] }),
   });
 
+  const resetMfa = useMutation({
+    mutationFn: (id: string) => staffApi.resetMfa(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['staff'] }),
+  });
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -47,11 +52,13 @@ export default function Staff() {
         <h1 className="text-lg font-semibold">Staff</h1>
         <p className="text-sm text-[var(--muted-foreground)]">
           Grant or revoke Shonrei admin and super-admin access. Only people who already have some portal access show up
-          here -- onboarding someone brand new still needs the usual setup step first.
+          here -- onboarding someone brand new still needs the usual setup step first. Staff accounts (admin and super
+          admin) must set up two-factor authentication and re-confirm it weekly.
         </p>
       </div>
 
       {update.isError && <p className="text-sm text-[var(--danger)]">{(update.error as Error).message}</p>}
+      {resetMfa.isError && <p className="text-sm text-[var(--danger)]">{(resetMfa.error as Error).message}</p>}
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
@@ -59,7 +66,8 @@ export default function Staff() {
             <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
               <th className="px-4 py-2 font-medium">User</th>
               <th className="px-2 py-2 font-medium">Role</th>
-              <th className="w-56 px-4 py-2"></th>
+              <th className="px-2 py-2 font-medium">2FA</th>
+              <th className="w-72 px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -69,7 +77,9 @@ export default function Staff() {
                 member={member}
                 isSelf={member.id === currentUserId}
                 onUpdate={(input) => update.mutate({ id: member.id, input })}
+                onResetMfa={() => resetMfa.mutate(member.id)}
                 pending={update.isPending && update.variables?.id === member.id}
+                resetPending={resetMfa.isPending && resetMfa.variables === member.id}
               />
             ))}
           </tbody>
@@ -83,12 +93,16 @@ function StaffRow({
   member,
   isSelf,
   onUpdate,
+  onResetMfa,
   pending,
+  resetPending,
 }: {
   member: StaffMember;
   isSelf: boolean;
   onUpdate: (input: { is_portal_admin?: boolean; is_super_admin?: boolean }) => void;
+  onResetMfa: () => void;
   pending: boolean;
+  resetPending: boolean;
 }) {
   return (
     <tr className="border-b border-[var(--border)] last:border-0">
@@ -106,8 +120,31 @@ function StaffRow({
           <Badge tone="muted">No staff access</Badge>
         )}
       </td>
+      <td className="px-2 py-2">
+        {member.mfa_enrolled === null ? (
+          <span className="text-xs text-[var(--muted-foreground)]">—</span>
+        ) : member.mfa_enrolled ? (
+          <Badge tone="success">Enrolled</Badge>
+        ) : (
+          <Badge tone="warning">Not enrolled</Badge>
+        )}
+      </td>
       <td className="px-4 py-2 text-right">
         <div className="flex justify-end gap-2">
+          {member.is_portal_admin && member.mfa_enrolled && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={resetPending}
+              onClick={() => {
+                if (window.confirm(`Reset 2FA for ${member.email}? They'll need to set it up again on their next sign-in.`)) {
+                  onResetMfa();
+                }
+              }}
+            >
+              Reset 2FA
+            </Button>
+          )}
           {member.is_super_admin ? (
             <Button
               size="sm"

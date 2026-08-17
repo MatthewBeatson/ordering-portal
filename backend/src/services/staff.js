@@ -32,7 +32,39 @@ async function listStaff(req) {
     .order('is_portal_admin', { ascending: false })
     .order('email');
   if (error) throw new ApiError(500, 'Failed to list staff', error.message);
-  return data;
+
+  // Attach 2FA status for staff rows only -- client/buyer rows never
+  // go through the weekly-MFA check, so their status is irrelevant
+  // noise on this screen.
+  const withMfaStatus = await Promise.all(
+    (data || []).map(async (row) => {
+      if (!row.is_portal_admin) return { ...row, mfa_enrolled: null };
+      const { data: factorData } = await supabaseAdmin.auth.admin.mfa.listFactors({ userId: row.id });
+      const verified = (factorData?.factors || []).some((f) => f.factor_type === 'totp' && f.status === 'verified');
+      return { ...row, mfa_enrolled: verified };
+    })
+  );
+  return withMfaStatus;
+}
+
+// Recovery path for a lost authenticator device -- removes every MFA
+// factor on the target account, dropping them back to
+// "enrollment required" on their next request rather than a permanent
+// lockout. Deliberately super-admin-only, same as every other staff
+// mutation here.
+async function resetMfa(req, targetUserId) {
+  requireSuperAdmin(req);
+  if (!targetUserId || typeof targetUserId !== 'string') throw new ApiError(400, 'A target user id is required');
+
+  const { data: factorData, error: listErr } = await supabaseAdmin.auth.admin.mfa.listFactors({ userId: targetUserId });
+  if (listErr) throw new ApiError(500, 'Failed to list factors', listErr.message);
+
+  for (const factor of factorData?.factors || []) {
+    const { error: delErr } = await supabaseAdmin.auth.admin.mfa.deleteFactor({ userId: targetUserId, id: factor.id });
+    if (delErr) throw new ApiError(500, `Failed to remove factor ${factor.id}`, delErr.message);
+  }
+
+  return { ok: true, factorsRemoved: factorData?.factors?.length || 0 };
 }
 
 async function updateStaffFlags(req, targetUserId, input) {
@@ -75,4 +107,4 @@ async function updateStaffFlags(req, targetUserId, input) {
   return data;
 }
 
-module.exports = { listStaff, updateStaffFlags };
+module.exports = { listStaff, updateStaffFlags, resetMfa };

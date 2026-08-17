@@ -23,4 +23,12 @@ router.patch(
   })
 );
 
+router.post(
+  '/:id/reset-mfa',
+  asyncHandler(async (req, res) => {
+    const result = await staffService.resetMfa(req, req.params.id);
+    res.json(result);
+  })
+);
+
 module.exports = router;

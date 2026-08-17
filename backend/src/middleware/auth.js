@@ -1,5 +1,6 @@
 const { supabaseAdmin, supabaseAuth, createUserScopedClient } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
+const { checkStaffMfa } = require('../lib/mfa');
 
 // Verifies the Supabase JWT on every request, then resolves the caller's
 // store/client roles so route handlers don't each have to re-query them.
@@ -46,6 +47,17 @@ async function requireAuth(req, res, next) {
 
     const isPortalAdmin = userRow?.is_portal_admin === true;
     const isSuperAdmin = userRow?.is_super_admin === true;
+
+    // Weekly 2FA requirement, staff only (is_portal_admin covers both
+    // admin and super_admin, since super_admin implies portal_admin --
+    // see services/staff.js). Never applies to client/buyer accounts.
+    if (isPortalAdmin) {
+      const mfaCheck = await checkStaffMfa(user.id);
+      if (!mfaCheck.ok) {
+        throw new ApiError(403, mfaCheck.message, { code: mfaCheck.code });
+      }
+    }
+
     const clientIds = (clientRoles || []).map((r) => r.client_id);
 
     let accessibleStoreIds = new Set((storeRoles || []).map((r) => r.store_id));

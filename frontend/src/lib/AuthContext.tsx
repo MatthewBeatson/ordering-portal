@@ -1,6 +1,9 @@
 import * as React from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { setMfaRequiredHandler, type MfaRequiredCode } from './mfaSignal';
+
+const MFA_REVERIFY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface StoreRole {
   store_id: string;
@@ -23,6 +26,10 @@ interface AuthState {
   canApprove: (storeId: string) => boolean;
   signOut: () => Promise<void>;
   refreshRoles: () => Promise<void>;
+  /** Staff-only (is_portal_admin). Weekly TOTP requirement -- see backend/src/lib/mfa.js for the authoritative check this mirrors. */
+  mfaRequired: MfaRequiredCode | null;
+  /** Re-checks MFA status after a successful enroll/challenge, clearing mfaRequired if satisfied. */
+  refreshMfaStatus: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthState | undefined>(undefined);
@@ -35,6 +42,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [storeRoles, setStoreRoles] = React.useState<StoreRole[]>([]);
   const [clientRoles, setClientRoles] = React.useState<ClientRole[]>([]);
   const [accessibleStoreIds, setAccessibleStoreIds] = React.useState<Set<string>>(new Set());
+  const [mfaRequired, setMfaRequired] = React.useState<MfaRequiredCode | null>(null);
+
+  // Proactive check, only meaningful for staff -- best-effort: Supabase's
+  // self-listFactors() doesn't reliably surface last_challenged_at, so
+  // this can only reliably detect "never enrolled", not "enrolled but
+  // stale". Staleness is still caught for real by the reactive path
+  // below (any backend 403 with an MFA_* code), which is the
+  // authoritative check either way -- this just avoids a guaranteed
+  // round-trip to the backend before showing the gate when we can tell
+  // enrollment is missing outright.
+  const checkMfaStatus = React.useCallback(async () => {
+    const { data } = await supabase.auth.mfa.listFactors();
+    const verifiedTotp = data?.totp?.[0] as { last_challenged_at?: string } | undefined;
+
+    if (!verifiedTotp) {
+      setMfaRequired('MFA_ENROLLMENT_REQUIRED');
+      return;
+    }
+    if (verifiedTotp.last_challenged_at) {
+      const staleMs = Date.now() - new Date(verifiedTotp.last_challenged_at).getTime();
+      if (staleMs > MFA_REVERIFY_INTERVAL_MS) {
+        setMfaRequired('MFA_REVERIFY_REQUIRED');
+        return;
+      }
+    }
+    setMfaRequired(null);
+  }, []);
 
   const resolveRoles = React.useCallback(async (userId: string) => {
     const [{ data: userRow }, { data: storeRoleRows }, { data: clientRoleRows }] = await Promise.all([
@@ -68,7 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStoreRoles(stores);
     setClientRoles(clients);
     setAccessibleStoreIds(accessible);
-  }, []);
+
+    if (admin) {
+      await checkMfaStatus();
+    } else {
+      setMfaRequired(null);
+    }
+  }, [checkMfaStatus]);
 
   const refreshRoles = React.useCallback(async () => {
     if (session?.user) await resolveRoles(session.user.id);
@@ -98,6 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStoreRoles([]);
         setClientRoles([]);
         setAccessibleStoreIds(new Set());
+        setMfaRequired(null);
         setLoading(false);
       }
     });
@@ -107,6 +148,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sub.subscription.unsubscribe();
     };
   }, [resolveRoles]);
+
+  // Bridges api.ts's fetch layer (no React context access) back into
+  // this context -- see lib/mfaSignal.ts.
+  React.useEffect(() => {
+    setMfaRequiredHandler((code) => setMfaRequired(code));
+    return () => setMfaRequiredHandler(null);
+  }, []);
+
+  const refreshMfaStatus = React.useCallback(async () => {
+    await checkMfaStatus();
+  }, [checkMfaStatus]);
 
   const canApprove = React.useCallback(
     (storeId: string) => {
@@ -135,6 +187,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     canApprove,
     signOut,
     refreshRoles,
+    mfaRequired,
+    refreshMfaStatus,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

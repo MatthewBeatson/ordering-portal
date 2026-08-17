@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import type { Order } from './types';
+import { triggerMfaRequired, type MfaRequiredCode } from './mfaSignal';
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL as string;
 
@@ -22,6 +23,12 @@ async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const p = payload as { error?: string; details?: unknown } | null;
     const message = p?.error || `Request failed (${res.status})`;
+
+    const detailsObj = p?.details && typeof p.details === 'object' ? (p.details as { code?: string }) : null;
+    if (res.status === 403 && detailsObj?.code?.startsWith('MFA_')) {
+      triggerMfaRequired(detailsObj.code as MfaRequiredCode);
+    }
+
     const details = typeof p?.details === 'string' ? p.details : p?.details ? JSON.stringify(p.details) : undefined;
     throw new Error(details ? `${message} — ${details}` : message);
   }
@@ -158,10 +165,13 @@ export interface StaffMember {
   is_portal_admin: boolean;
   is_super_admin: boolean;
   created_at: string;
+  /** null for non-staff rows (2FA only applies to is_portal_admin accounts). */
+  mfa_enrolled: boolean | null;
 }
 
 export const staffApi = {
   list: () => request<{ staff: StaffMember[] }>('GET', '/staff'),
   update: (id: string, input: { is_portal_admin?: boolean; is_super_admin?: boolean }) =>
     request<StaffMember>('PATCH', `/staff/${id}`, input),
+  resetMfa: (id: string) => request<{ ok: boolean; factorsRemoved: number }>('POST', `/staff/${id}/reset-mfa`),
 };
