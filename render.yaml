@@ -24,7 +24,14 @@ services:
         sync: false
 
   - type: web
-    name: ordering-portal-frontend
+    # Matches the real, live Render service name (created manually via
+    # the dashboard, not Blueprint sync) -- this used to say
+    # "ordering-portal-frontend", which Render's Blueprint auto-sync
+    # took as license to create a second, separate, misconfigured
+    # (missing env vars, so blank) duplicate service under that name.
+    # Deleted 2026-08-18; keeping this name in sync with reality so a
+    # future push can't recreate it.
+    name: ordering-portal
     runtime: static
     rootDir: frontend
     buildCommand: npm install && npm run build
