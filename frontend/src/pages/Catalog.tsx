@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { productImageUrl } from '@/lib/supabase';
 import { useCart } from '@/lib/CartContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useMyStores } from '@/lib/useStores';
 import { useClientCatalog, type ProductRow } from '@/lib/useClientCatalog';
 import { tierPrice } from '@/lib/pricing';
@@ -10,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
-import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
+import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
 
@@ -36,7 +37,7 @@ const FACETS: { key: FacetKey; label: string; getRef: (p: ProductRow) => FacetRe
 export default function Catalog() {
   const cart = useCart();
   const { data: stores, isLoading: storesLoading } = useMyStores();
-  const [imageSize, setImageSize] = React.useState<ImageSize>('small');
+  const { imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
   const showImages = imageSize !== 'hide';
 
   // Default to the user's only/first store once loaded.

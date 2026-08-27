@@ -12,18 +12,17 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
-import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
+import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { RefreshCw, Pencil } from 'lucide-react';
 
 export default function OrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
-  const { canApprove, isPortalAdmin } = useAuth();
+  const { canApprove, isPortalAdmin, imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
   const cart = useCart();
   const { data: stores } = useMyStores();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [actionError, setActionError] = React.useState<string | null>(null);
-  const [imageSize, setImageSize] = React.useState<ImageSize>('hide');
   const showImages = imageSize !== 'hide';
 
   const { data: order, isLoading, error } = useQuery({

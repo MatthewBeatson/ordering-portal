@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCart } from '@/lib/CartContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useClientCatalog } from '@/lib/useClientCatalog';
@@ -12,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
-import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS, type ImageSize } from '@/components/ImageSizeToggle';
+import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import type { ClientAddress } from '@/lib/types';
 import { Trash2, MapPin, Pencil, X } from 'lucide-react';
@@ -23,11 +24,16 @@ export default function Cart() {
   const navigate = useNavigate();
   const [notes, setNotes] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
-  // No "hide" option on Cart, deliberately -- a buyer should never be
-  // able to lose sight of what they're actually about to submit vs.
-  // what they think they're ordering. Always at least "small".
-  const [imageSize, setImageSize] = React.useState<ImageSize>('small');
-  const showImages = imageSize !== 'hide';
+  // Shared, per-user-persisted preference (see AuthContext) -- but no
+  // "hide" option on Cart, deliberately, regardless of what it's set to
+  // elsewhere: a buyer should never be able to lose sight of what
+  // they're actually about to submit vs. what they think they're
+  // ordering. Clamped to "small" here rather than writing that back to
+  // the shared preference, so Catalog/OrderDetail aren't affected by
+  // just having visited Cart.
+  const { imageSizePreference, setImageSizePreference } = useAuth();
+  const imageSize = imageSizePreference === 'hide' ? 'small' : imageSizePreference;
+  const showImages = true;
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
@@ -112,7 +118,7 @@ export default function Cart() {
         </div>
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
-          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} allowHide={false} />}
+          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSizePreference} allowHide={false} />}
           {isEditing && (
             <Button size="sm" variant="ghost" onClick={cancelEdit}>
               <X className="h-3.5 w-3.5" />

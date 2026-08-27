@@ -11,7 +11,7 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   );
 
 export function AppShell() {
-  const { isPortalAdmin, isSuperAdmin, storeRoles, clientRoles, signOut, session } = useAuth();
+  const { isPortalAdmin, isSuperAdmin, storeRoles, clientRoles, signOut, session, companyName } = useAuth();
   const { count } = useCart();
 
   const canApproveAnything = isPortalAdmin || clientRoles.length > 0 || storeRoles.some((r) => r.role === 'store_admin');
@@ -20,7 +20,12 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen">
       <aside className="flex w-56 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)] p-4">
-        <div className="mb-6 px-2 text-base font-semibold">Shonrei ordering</div>
+        <div className="mb-6 px-2">
+          <div className="text-base font-semibold">Shonrei ordering</div>
+          <div className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">
+            {isPortalAdmin ? 'Shonrei staff' : companyName || '—'}
+          </div>
+        </div>
 
         <nav className="flex flex-1 flex-col gap-1">
           <NavLink to="/" end className={navLinkClass}>

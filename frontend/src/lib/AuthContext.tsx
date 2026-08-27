@@ -22,6 +22,8 @@ interface AuthState {
   storeRoles: StoreRole[];
   clientRoles: ClientRole[];
   accessibleStoreIds: Set<string>;
+  /** The client company/companies the signed-in user belongs to (via a direct client_admin role, or through their store's client) — null for staff, who aren't scoped to one company. Display-only; access itself is still governed by storeRoles/clientRoles/RLS. */
+  companyName: string | null;
   /** Whether the current user can approve orders for the given store — mirrors the backend's can_approve() logic, for UI display only. The backend re-checks this for real via RPC on every write. */
   canApprove: (storeId: string) => boolean;
   signOut: () => Promise<void>;
@@ -30,6 +32,9 @@ interface AuthState {
   mfaRequired: MfaRequiredCode | null;
   /** Re-checks MFA status after a successful enroll/challenge, clearing mfaRequired if satisfied. */
   refreshMfaStatus: () => Promise<void>;
+  /** Catalog/Cart/OrderDetail's shared image-size toggle -- persisted per-user (see 021_user_image_size_preference.sql) so it's the same on next login, any device. 'small' until the real value loads. */
+  imageSizePreference: 'hide' | 'small' | 'large';
+  setImageSizePreference: (v: 'hide' | 'small' | 'large') => void;
 }
 
 const AuthContext = React.createContext<AuthState | undefined>(undefined);
@@ -43,6 +48,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [clientRoles, setClientRoles] = React.useState<ClientRole[]>([]);
   const [accessibleStoreIds, setAccessibleStoreIds] = React.useState<Set<string>>(new Set());
   const [mfaRequired, setMfaRequired] = React.useState<MfaRequiredCode | null>(null);
+  const [companyName, setCompanyName] = React.useState<string | null>(null);
+  const [imageSizePreference, setImageSizePreferenceState] = React.useState<'hide' | 'small' | 'large'>('small');
 
   // Proactive check, only meaningful for staff -- best-effort: Supabase's
   // self-listFactors() doesn't reliably surface last_challenged_at, so
@@ -71,11 +78,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resolveRoles = React.useCallback(async (userId: string) => {
-    const [{ data: userRow }, { data: storeRoleRows }, { data: clientRoleRows }] = await Promise.all([
+    const [{ data: userRow }, { data: storeRoleRows }, { data: clientRoleRows }, { data: prefsRow }] = await Promise.all([
       supabase.from('users').select('is_portal_admin, is_super_admin').eq('id', userId).maybeSingle(),
       supabase.from('user_store_roles').select('store_id, role').eq('user_id', userId),
       supabase.from('user_client_roles').select('client_id, role').eq('user_id', userId),
+      supabase.from('user_preferences').select('image_size').eq('user_id', userId).maybeSingle(),
     ]);
+
+    if (prefsRow?.image_size) setImageSizePreferenceState(prefsRow.image_size as 'hide' | 'small' | 'large');
 
     const admin = userRow?.is_portal_admin === true;
     const superAdmin = userRow?.is_super_admin === true;
@@ -102,6 +112,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStoreRoles(stores);
     setClientRoles(clients);
     setAccessibleStoreIds(accessible);
+
+    // Staff aren't scoped to one company -- shown as "Shonrei staff" in
+    // AppShell instead. For everyone else, resolve via a direct
+    // client_admin role and/or through whichever client owns their
+    // store(s) -- normally exactly one company, but joined rather than
+    // just taking the first in case a test/edge-case account ever spans
+    // more than one.
+    if (!admin) {
+      const clientIds = new Set(clients.map((c) => c.client_id));
+      if (stores.length > 0) {
+        const { data: storeClients } = await supabase
+          .from('stores')
+          .select('client_id')
+          .in('id', stores.map((s) => s.store_id));
+        for (const s of storeClients ?? []) clientIds.add(s.client_id as string);
+      }
+      if (clientIds.size > 0) {
+        const { data: clientRows } = await supabase.from('clients').select('name').in('id', Array.from(clientIds));
+        const names = (clientRows ?? []).map((c) => c.name as string);
+        setCompanyName(names.length > 0 ? names.join(' / ') : null);
+      } else {
+        setCompanyName(null);
+      }
+    } else {
+      setCompanyName(null);
+    }
 
     if (admin) {
       await checkMfaStatus();
@@ -139,6 +175,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setClientRoles([]);
         setAccessibleStoreIds(new Set());
         setMfaRequired(null);
+        setCompanyName(null);
+        setImageSizePreferenceState('small');
         setLoading(false);
       }
     });
@@ -159,6 +197,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshMfaStatus = React.useCallback(async () => {
     await checkMfaStatus();
   }, [checkMfaStatus]);
+
+  // Optimistic: updates immediately so the toggle feels instant, then
+  // persists in the background. Best-effort -- if the upsert fails the
+  // user just won't have it remembered next login, not worth surfacing
+  // an error for.
+  const setImageSizePreference = React.useCallback(
+    (v: 'hide' | 'small' | 'large') => {
+      setImageSizePreferenceState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, image_size: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save image size preference:', error.message);
+        });
+    },
+    [session]
+  );
 
   const canApprove = React.useCallback(
     (storeId: string) => {
@@ -184,11 +241,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     storeRoles,
     clientRoles,
     accessibleStoreIds,
+    companyName,
     canApprove,
     signOut,
     refreshRoles,
     mfaRequired,
     refreshMfaStatus,
+    imageSizePreference,
+    setImageSizePreference,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
