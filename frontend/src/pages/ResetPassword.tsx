@@ -15,6 +15,16 @@ import { Spinner } from '@/components/ui/spinner';
 // weekly-2FA requirement), so this hits every staff password reset --
 // checked for and challenged here before ever showing the password
 // form, rather than letting updateUser fail after the fact.
+//
+// Checking is keyed off listFactors() (does this account have ANY
+// verified TOTP factor at all -- a stable fact about the account, not
+// a snapshot of the current session's assurance level), and triggered
+// by Supabase's own 'PASSWORD_RECOVERY' auth event -- the documented
+// signal that detectSessionInUrl has actually finished establishing
+// the recovery session. Checking getAuthenticatorAssuranceLevel() (or
+// listFactors()) synchronously on mount instead raced that async
+// processing and read "no session yet" every time, so the MFA
+// challenge never showed and updateUser always failed after the fact.
 export default function ResetPassword() {
   const [checkingMfa, setCheckingMfa] = React.useState(true);
   const [mfaFactorId, setMfaFactorId] = React.useState<string | null>(null);
@@ -31,21 +41,44 @@ export default function ResetPassword() {
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    supabase.auth.mfa.getAuthenticatorAssuranceLevel().then(async ({ data, error: err }) => {
-      if (err || !data || data.nextLevel !== 'aal2' || data.currentLevel === 'aal2') {
-        // No MFA factor on this account, or already at aal2 -- nothing to challenge.
-        setCheckingMfa(false);
-        return;
-      }
-      const { data: factorData } = await supabase.auth.mfa.listFactors();
-      const factor = factorData?.totp?.[0];
+    let active = true;
+    let checked = false;
+
+    async function checkMfaFactors() {
+      if (checked) return; // onAuthStateChange + the immediate getSession check can both fire
+      checked = true;
+      const { data: factorData, error: err } = await supabase.auth.mfa.listFactors();
+      if (!active) return;
       setCheckingMfa(false);
-      if (!factor) {
-        setMfaError('Your 2FA setup could not be verified. Please contact a super admin to reset it.');
-        return;
-      }
-      setMfaFactorId(factor.id);
+      if (err) return; // fail open to the normal password form -- updateUser will surface a clear error if MFA really was required
+      const factor = factorData?.totp?.find((f) => f.status === 'verified');
+      if (factor) setMfaFactorId(factor.id);
+    }
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') checkMfaFactors();
     });
+
+    // In case the recovery session (and its PASSWORD_RECOVERY event)
+    // already landed before this listener was attached.
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) checkMfaFactors();
+    });
+
+    // Hard fallback: never leave the user staring at a spinner forever
+    // if neither signal fires (e.g. an expired/invalid recovery link).
+    const timeout = setTimeout(() => {
+      if (active && !checked) {
+        checked = true;
+        setCheckingMfa(false);
+      }
+    }, 4000);
+
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, []);
 
   async function handleMfaVerify(e: React.FormEvent) {
