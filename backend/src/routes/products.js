@@ -44,6 +44,14 @@ router.post(
   })
 );
 
+router.patch(
+  '/:id/taxonomy',
+  asyncHandler(async (req, res) => {
+    const product = await productsService.updateTaxonomy(req, req.params.id, req.body);
+    res.json(product);
+  })
+);
+
 router.post(
   '/:id/images',
   upload.single('file'),

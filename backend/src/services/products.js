@@ -27,6 +27,34 @@ function requireClientId(clientId) {
   }
 }
 
+// Sets a product's own GLOBAL classification -- product_type_id/
+// jewellery_type_id/colour_id on `products` itself, as distinct from a
+// per-client override (client_product_attributes, see
+// services/clientProductAttributes.js). Portal-native as of 023 -- no
+// longer Cin7-sourced, so this is the only way these ever get set now.
+// Partial update: only the keys actually present in input are touched,
+// so the curation UI can change one dropdown at a time.
+const TAXONOMY_FIELDS = ['product_type_id', 'jewellery_type_id', 'colour_id'];
+
+async function updateTaxonomy(req, productId, input) {
+  requireStaff(req);
+  const patch = {};
+  for (const field of TAXONOMY_FIELDS) {
+    if (field in (input || {})) patch[field] = input[field] || null;
+  }
+  if (Object.keys(patch).length === 0) throw new ApiError(400, 'Nothing to update');
+
+  const { data, error } = await supabaseAdmin
+    .from('products')
+    .update(patch)
+    .eq('id', productId)
+    .select('id, product_type_id, jewellery_type_id, colour_id')
+    .maybeSingle();
+  if (error) throw new ApiError(500, 'Failed to update product classification', error.message);
+  if (!data) throw new ApiError(404, 'Product not found');
+  return data;
+}
+
 async function runSync(req) {
   requireStaff(req);
   try {
@@ -135,4 +163,4 @@ async function deleteImage(req, imageId) {
   if (removeErr) console.error(`[products] failed to remove storage object ${image.storage_path}:`, removeErr.message);
 }
 
-module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal, uploadImage, deleteImage };
+module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal, uploadImage, deleteImage, updateTaxonomy };

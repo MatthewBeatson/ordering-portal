@@ -189,6 +189,23 @@ export default function ProductCuration() {
     onError: (err: Error) => setActionError(err.message),
   });
 
+  // Product type/jewellery held/colour are portal-native (023) -- this
+  // is the only way a product's own GLOBAL classification ever gets
+  // set now (distinct from the per-client override above). Same
+  // local-state-patch reasoning as uploadImage/deleteImage below --
+  // avoids re-appending a page > 0 refetch.
+  const updateTaxonomy = useMutation({
+    mutationFn: ({ productId, field, value }: { productId: string; field: 'product_type_id' | 'jewellery_type_id' | 'colour_id'; value: string }) =>
+      productsApi.updateTaxonomy(productId, { [field]: value || null }),
+    onSuccess: (_result, { productId, field, value }) => {
+      const nestedKey = field === 'product_type_id' ? 'product_types' : field === 'jewellery_type_id' ? 'product_jewellery_types' : 'product_colours';
+      const list = field === 'product_type_id' ? taxonomyTypes : field === 'jewellery_type_id' ? taxonomyJewelleryTypes : taxonomyColours;
+      const chosen = (list ?? []).find((t) => t.id === value) ?? null;
+      setRows((prev) => prev.map((p) => (p.id === productId ? { ...p, [field]: value || null, [nestedKey]: chosen ? { id: chosen.id, name: chosen.name } : null } : p)));
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
   const sync = useMutation({
     mutationFn: () => productsApi.sync(),
     onSuccess: (result) => {
@@ -330,6 +347,8 @@ export default function ProductCuration() {
                   <th className="px-2 py-2 font-medium">Category</th>
                   <th className="px-2 py-2 font-medium">Display system</th>
                   <th className="px-2 py-2 font-medium">Product type</th>
+                  <th className="px-2 py-2 font-medium">Jewellery held</th>
+                  <th className="px-2 py-2 font-medium">Colour</th>
                   <th className="px-2 py-2 font-medium">Portal</th>
                   <th className="px-2 py-2 font-medium">Attributes</th>
                   <th className="px-4 py-2 font-medium"></th>
@@ -364,7 +383,27 @@ export default function ProductCuration() {
                         <td className="px-2 py-2">{p.name}</td>
                         <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.category ?? '—'}</td>
                         <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.display_systems?.name ?? '—'}</td>
-                        <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.product_types?.name ?? '—'}</td>
+                        <td className="px-2 py-2">
+                          <TaxonomySelect
+                            value={p.product_type_id}
+                            options={taxonomyTypes ?? []}
+                            onChange={(value) => updateTaxonomy.mutate({ productId: p.id, field: 'product_type_id', value })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <TaxonomySelect
+                            value={p.jewellery_type_id}
+                            options={taxonomyJewelleryTypes ?? []}
+                            onChange={(value) => updateTaxonomy.mutate({ productId: p.id, field: 'jewellery_type_id', value })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
+                          <TaxonomySelect
+                            value={p.colour_id}
+                            options={taxonomyColours ?? []}
+                            onChange={(value) => updateTaxonomy.mutate({ productId: p.id, field: 'colour_id', value })}
+                          />
+                        </td>
                         <td className="px-2 py-2">
                           <Badge tone={onPortal ? 'success' : 'muted'}>{onPortal ? 'On portal' : 'Off'}</Badge>
                         </td>
@@ -387,7 +426,7 @@ export default function ProductCuration() {
                       </tr>
                       {expanded && selectedClientId && (
                         <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30 last:border-0">
-                          <td colSpan={10} className="px-4 py-3">
+                          <td colSpan={12} className="px-4 py-3">
                             <AttributesEditor
                               product={p}
                               override={override}
@@ -425,6 +464,28 @@ export default function ProductCuration() {
         </Card>
       )}
     </div>
+  );
+}
+
+// Inline editable select for a product's own GLOBAL classification
+// (product_type_id/jewellery_type_id/colour_id, portal-native as of
+// 023) -- plain <select>, same style as the "Curating portal for"
+// dropdown above. A blank option always exists (unclassified is valid
+// -- not every product needs every facet set).
+function TaxonomySelect({ value, options, onChange }: { value: string | null; options: TaxonomyRow[]; onChange: (value: string) => void }) {
+  return (
+    <select
+      className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">—</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

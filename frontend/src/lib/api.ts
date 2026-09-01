@@ -120,6 +120,15 @@ export const productsApi = {
     }),
   uploadImage: (productId: string, file: File) => requestFile<UploadedProductImage>('POST', `/products/${productId}/images`, file),
   deleteImage: (imageId: string) => request<void>('DELETE', `/products/images/${imageId}`),
+  updateTaxonomy: (
+    productId: string,
+    input: Partial<{ product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }>
+  ) =>
+    request<{ id: string; product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }>(
+      'PATCH',
+      `/products/${productId}/taxonomy`,
+      input
+    ),
 };
 
 export interface ManageableStore {
