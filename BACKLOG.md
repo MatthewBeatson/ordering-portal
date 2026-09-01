@@ -67,6 +67,19 @@ breakdown for that specific order without opening its full detail
 page -- same underlying `quantity × jewellery_capacity` calc, just
 scoped to one order's lines instead of the whole cart.
 
+## Move DNS to Shonrei's own Cloudflare account
+3rd party confirmed (2026-08-28): the Cloudflare account managing
+`shonrei.co.nz`/`shonrei.com` DNS is theirs, not Shonrei's -- moving it
+means creating a new Cloudflare account under Shonrei, migrating the
+DNS zone across, then repointing the domains' nameservers at the
+registrar. Good news: domain *registration* itself is already
+Shonrei's, confirmed by the same reply -- no transfer needed there.
+Still open: whether Shonrei has direct login access to the actual
+registrar (DiscountDomains) to make the nameserver change themselves,
+or whether that step also needs the 3rd party. Deliberately deferred --
+user asked to hold off until the daily-report auth migration + Resend
+setup are finished, then revisit.
+
 ## Product image upload + resize
 No staff-facing upload screen exists yet — images have to be inserted
 into the `product-images` Storage bucket directly. When built, auto-
