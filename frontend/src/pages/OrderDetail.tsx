@@ -6,6 +6,9 @@ import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/CartContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
+import { useResolvedLines } from '@/lib/useResolvedLines';
+import { useClientCatalog } from '@/lib/useClientCatalog';
+import { groupProducts, type GroupMode } from '@/lib/groupProducts';
 import { money, dateTime } from '@/lib/format';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { Card } from '@/components/ui/card';
@@ -13,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
+import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { RefreshCw, Pencil } from 'lucide-react';
 
 export default function OrderDetail() {
@@ -64,6 +68,21 @@ export default function OrderDetail() {
 
   const { data: thumbnails } = useProductThumbnails(showImages ? (order?.order_lines ?? []).map((l) => l.sku) : []);
 
+  const clientId = stores?.find((s) => s.id === order?.store_id)?.client_id;
+  const { showPricing } = useClientCatalog(clientId);
+  const { bySku } = useResolvedLines((order?.order_lines ?? []).map((l) => l.sku), clientId);
+  const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
+  const groups = React.useMemo(
+    () =>
+      groupProducts(
+        order?.order_lines ?? [],
+        groupMode,
+        (l) => bySku.get(l.sku)?.display_systems,
+        (l) => bySku.get(l.sku)?.product_types
+      ),
+    [order, groupMode, bySku]
+  );
+
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
@@ -78,7 +97,7 @@ export default function OrderDetail() {
 
   const storeName = stores?.find((s) => s.id === order.store_id)?.name ?? order.store_id;
   const total = (order.order_lines ?? []).reduce((sum, l) => sum + (l.unit_price ?? 0) * l.quantity, 0);
-  const hasPricing = (order.order_lines ?? []).some((l) => l.unit_price != null);
+  const hasPricing = (order.order_lines ?? []).some((l) => l.unit_price != null) && showPricing;
 
   const canCancelDirectly = order.status === 'pending' || order.status === 'confirmed';
   const canRequestCancellation = order.status === 'in_progress' || order.status === 'shipped';
@@ -161,58 +180,67 @@ export default function OrderDetail() {
         </Card>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        <GroupModeToggle value={groupMode} onChange={setGroupMode} />
         <ImageSizeToggle value={imageSize} onChange={setImageSize} />
       </div>
 
-      <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
-              {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
-              <th className="px-2 py-2 font-medium">SKU</th>
-              <th className="px-2 py-2 font-medium">Description</th>
-              <th className="px-2 py-2 font-medium">Qty</th>
-              {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
-              {hasPricing && <th className="px-4 py-2 text-right font-medium">Line total</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {(order.order_lines ?? []).map((line) => {
-              const thumb = thumbnails?.get(line.sku);
-              return (
-                <tr key={line.id} className="border-b border-[var(--border)] last:border-0">
-                  {showImages && (
-                    <td className="px-4 py-2">
-                      {thumb ? (
-                        <img src={thumb} alt={line.description ?? line.sku} className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`} />
-                      ) : (
-                        <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
-                      )}
-                    </td>
-                  )}
-                  <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
-                  <td className="px-2 py-2">{line.description ?? '—'}</td>
-                  <td className="px-2 py-2">{line.quantity}</td>
-                  {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
-                  {hasPricing && <td className="px-4 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
-                </tr>
-              );
-            })}
-          </tbody>
-          {hasPricing && (
-            <tfoot>
-              <tr>
-                <td colSpan={showImages ? 4 : 3} className="px-4 py-2 text-right font-medium">
-                  Total
-                </td>
-                <td></td>
-                <td className="px-4 py-2 text-right font-semibold tabular-nums">{money(total)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </Card>
+      {groups.map((group) => (
+        <Card key={group.key} className="overflow-hidden">
+          <div className="border-b border-[var(--border)] bg-[var(--muted)] px-4 py-2 text-sm font-semibold">{group.label}</div>
+          {group.subgroups.map((sub) => (
+            <div key={sub.key}>
+              {sub.label && (
+                <div className="border-b border-[var(--border)] px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  {sub.label}
+                </div>
+              )}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
+                    {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
+                    <th className="px-2 py-2 font-medium">SKU</th>
+                    <th className="px-2 py-2 font-medium">Description</th>
+                    <th className="px-2 py-2 font-medium">Qty</th>
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
+                    {hasPricing && <th className="px-4 py-2 text-right font-medium">Line total</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sub.rows.map((line) => {
+                    const thumb = thumbnails?.get(line.sku);
+                    return (
+                      <tr key={line.id} className="border-b border-[var(--border)] last:border-0">
+                        {showImages && (
+                          <td className="px-4 py-2">
+                            {thumb ? (
+                              <img src={thumb} alt={line.description ?? line.sku} className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`} />
+                            ) : (
+                              <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
+                            )}
+                          </td>
+                        )}
+                        <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
+                        <td className="px-2 py-2">{line.description ?? '—'}</td>
+                        <td className="px-2 py-2">{line.quantity}</td>
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
+                        {hasPricing && <td className="px-4 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </Card>
+      ))}
+
+      {hasPricing && (
+        <Card className="flex items-center justify-end gap-3 px-4 py-2">
+          <span className="text-sm font-medium">Total</span>
+          <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+        </Card>
+      )}
 
       {actionError && <p className="text-sm text-[var(--danger)]">{actionError}</p>}
 

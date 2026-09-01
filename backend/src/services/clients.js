@@ -8,6 +8,31 @@ function requireStaff(req) {
   }
 }
 
+// Stricter than requireStaff -- pricing visibility is deliberately
+// super-admin-only (confirmed with the client), same gating pattern as
+// services/staff.js.
+function requireSuperAdmin(req) {
+  if (!req.roles.isSuperAdmin) {
+    throw new ApiError(403, 'This action is restricted to Shonrei super admins');
+  }
+}
+
+async function updateShowPricing(req, clientId, showPricing) {
+  requireSuperAdmin(req);
+  if (!clientId || typeof clientId !== 'string') throw new ApiError(400, 'client_id is required');
+  if (typeof showPricing !== 'boolean') throw new ApiError(400, 'show_pricing must be a boolean');
+
+  const { data, error } = await supabaseAdmin
+    .from('clients')
+    .update({ show_pricing: showPricing })
+    .eq('id', clientId)
+    .select('id, name, show_pricing')
+    .maybeSingle();
+  if (error) throw new ApiError(500, 'Failed to update pricing visibility', error.message);
+  if (!data) throw new ApiError(404, 'Client not found');
+  return data;
+}
+
 async function syncAddresses(req, clientId) {
   requireStaff(req);
   try {
@@ -36,4 +61,4 @@ async function listManageableClients(req) {
   return data;
 }
 
-module.exports = { syncAddresses, listManageableClients };
+module.exports = { syncAddresses, listManageableClients, updateShowPricing };

@@ -12,10 +12,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
+import { GroupModeToggle } from '@/components/GroupModeToggle';
+import { groupProducts, type GroupMode } from '@/lib/groupProducts';
 import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
-
-type GroupMode = 'type' | 'display';
 
 // Three parallel facets under 'display' mode -- Type, Jewellery held,
 // Colour -- sourced from Cin7 Additional Attributes 1/2/3. "Parallel"
@@ -48,7 +48,12 @@ export default function Catalog() {
   }, [stores, cart]);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId) ?? null;
-  const { tierNumber, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
+  // tierNumber stays real (unaffected by showPricing) -- it's what
+  // computes the unit_price actually attached to a cart line, and that
+  // value still has to flow through to Cin7 for invoicing regardless
+  // of whether this client's buyers can see prices in the portal.
+  // showPricing only gates what gets *displayed*.
+  const { tierNumber, showPricing, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
 
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
@@ -157,48 +162,13 @@ export default function Catalog() {
     });
   }
 
-  // Two-level grouping for "by display system": display system -> product type.
-  // For "by product type": a single level, product type only.
-  const groups = React.useMemo(() => {
-    if (groupMode === 'type') {
-      const byType = new Map<string, { label: string; order: number; rows: ProductRow[] }>();
-      for (const p of filtered) {
-        const key = p.product_types?.id ?? '__none';
-        if (!byType.has(key)) {
-          byType.set(key, { label: p.product_types?.name ?? 'Ungrouped', order: p.product_types?.display_order ?? 9999, rows: [] });
-        }
-        byType.get(key)!.rows.push(p);
-      }
-      return [...byType.entries()]
-        .sort((a, b) => a[1].order - b[1].order || a[1].label.localeCompare(b[1].label))
-        .map(([key, g]) => ({ key, subgroups: [{ key: 'flat', label: null as string | null, rows: g.rows }], label: g.label, order: g.order }));
-    }
-
-    const byDisplay = new Map<string, { label: string; order: number; rows: ProductRow[] }>();
-    for (const p of filtered) {
-      const key = p.display_systems?.id ?? '__none';
-      if (!byDisplay.has(key)) {
-        byDisplay.set(key, { label: p.display_systems?.name ?? 'Ungrouped', order: p.display_systems?.display_order ?? 9999, rows: [] });
-      }
-      byDisplay.get(key)!.rows.push(p);
-    }
-    return [...byDisplay.entries()]
-      .sort((a, b) => a[1].order - b[1].order || a[1].label.localeCompare(b[1].label))
-      .map(([key, g]) => {
-        const byType = new Map<string, { label: string; order: number; rows: ProductRow[] }>();
-        for (const p of g.rows) {
-          const tKey = p.product_types?.id ?? '__none';
-          if (!byType.has(tKey)) {
-            byType.set(tKey, { label: p.product_types?.name ?? 'Ungrouped', order: p.product_types?.display_order ?? 9999, rows: [] });
-          }
-          byType.get(tKey)!.rows.push(p);
-        }
-        const subgroups = [...byType.entries()]
-          .sort((a, b) => a[1].order - b[1].order || a[1].label.localeCompare(b[1].label))
-          .map(([tKey, t]) => ({ key: tKey, label: t.label, rows: t.rows }));
-        return { key, label: g.label, order: g.order, subgroups };
-      });
-  }, [filtered, groupMode]);
+  // Two-level grouping for "by display system": display system -> product
+  // type. For "by product type": a single level, product type only.
+  // Shared with Cart/OrderDetail -- see lib/groupProducts.ts.
+  const groups = React.useMemo(
+    () => groupProducts(filtered, groupMode, (p) => p.display_systems, (p) => p.product_types),
+    [filtered, groupMode]
+  );
 
   function handleAdd(p: ProductRow) {
     const quantity = quantities[p.id] ?? 1;
@@ -286,20 +256,7 @@ export default function Catalog() {
               />
             </div>
 
-            <div className="flex overflow-hidden rounded-[var(--radius)] border border-[var(--border-strong)]">
-              <button
-                onClick={() => setGroupMode('display')}
-                className={`px-3 py-1.5 text-sm font-medium ${groupMode === 'display' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
-              >
-                By display system
-              </button>
-              <button
-                onClick={() => setGroupMode('type')}
-                className={`border-l border-[var(--border-strong)] px-3 py-1.5 text-sm font-medium ${groupMode === 'type' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--card)] hover:bg-[var(--muted)]'}`}
-              >
-                By product type
-              </button>
-            </div>
+            <GroupModeToggle value={groupMode} onChange={setGroupMode} />
           </div>
 
           {groupMode === 'display' && displaySystemChips.length > 0 && (
@@ -349,7 +306,7 @@ export default function Catalog() {
         {products && products.length > 0 && (
           <div className="flex flex-col gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} />
+            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} />
           </div>
         )}
       </div>
@@ -376,7 +333,7 @@ export default function Catalog() {
                       <th className="px-2 py-2 font-medium">Our SKU</th>
                       <th className="px-2 py-2 font-medium">Client SKU</th>
                       <th className="px-2 py-2 font-medium">Product</th>
-                      {tierNumber && <th className="px-2 py-2 text-right font-medium">Price</th>}
+                      {tierNumber && showPricing && <th className="px-2 py-2 text-right font-medium">Price</th>}
                       <th className="px-2 py-2 font-medium">Qty</th>
                       <th className="px-4 py-2 font-medium"></th>
                     </tr>
@@ -407,7 +364,7 @@ export default function Catalog() {
                             <div className="font-medium">{p.name}</div>
                             {p.description && <div className="text-xs text-[var(--muted-foreground)] line-clamp-1">{p.description}</div>}
                           </td>
-                          {tierNumber && (
+                          {tierNumber && showPricing && (
                             <td className="px-2 py-2 text-right tabular-nums">{price != null ? `$${price.toFixed(2)}` : '—'}</td>
                           )}
                           <td className="px-2 py-2">

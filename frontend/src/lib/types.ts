@@ -48,6 +48,7 @@ export interface Client {
   id: string;
   name: string;
   cin7_price_tier: string | null;
+  show_pricing: boolean;
 }
 
 export interface ProductType {
@@ -110,6 +111,18 @@ export interface ClientProductSku {
   client_id: string;
   product_id: string;
   client_sku: string;
+}
+
+// Per-(client, product) overrides (022, extended by 024). null in any
+// field means "no override for this client -- use the product's
+// global value," never zero/empty.
+export interface ClientProductAttributeOverride {
+  client_id: string;
+  product_id: string;
+  jewellery_count: number | null;
+  product_type_id: string | null;
+  jewellery_type_id: string | null;
+  colour_id: string | null;
 }
 
 export interface ClientAddress {

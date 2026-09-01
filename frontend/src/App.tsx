@@ -12,7 +12,9 @@ import OrderDetail from '@/pages/OrderDetail';
 import Approvals from '@/pages/Approvals';
 import Account from '@/pages/Account';
 import ProductCuration from '@/pages/admin/ProductCuration';
+import ProductTaxonomy from '@/pages/admin/ProductTaxonomy';
 import Staff from '@/pages/admin/Staff';
+import ClientSettings from '@/pages/admin/ClientSettings';
 import DevSession from '@/pages/DevSession';
 
 export default function App() {
@@ -35,10 +37,12 @@ export default function App() {
 
             <Route element={<StaffOnlyRoute />}>
               <Route path="/admin/products" element={<ProductCuration />} />
+              <Route path="/admin/product-taxonomy" element={<ProductTaxonomy />} />
             </Route>
 
             <Route element={<SuperAdminOnlyRoute />}>
               <Route path="/admin/staff" element={<Staff />} />
+              <Route path="/admin/client-settings" element={<ClientSettings />} />
             </Route>
           </Route>
         </Route>

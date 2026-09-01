@@ -1,17 +1,28 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase, productImageUrl } from '@/lib/supabase';
-import { productsApi } from '@/lib/api';
+import { productsApi, productTaxonomyApi, clientProductAttributesApi, type TaxonomyRow } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Spinner } from '@/components/ui/spinner';
-import type { Client, DisplaySystem, Product, ProductImage, ProductType } from '@/lib/types';
-import { RefreshCw, Search, Upload, X } from 'lucide-react';
+import type {
+  Client,
+  ClientProductAttributeOverride,
+  DisplaySystem,
+  Product,
+  ProductColour,
+  ProductImage,
+  ProductJewelleryType,
+  ProductType,
+} from '@/lib/types';
+import { RefreshCw, Search, SlidersHorizontal, Upload, X } from 'lucide-react';
 
 type ProductRow = Product & {
   product_types: Pick<ProductType, 'id' | 'name'> | null;
+  product_jewellery_types: Pick<ProductJewelleryType, 'id' | 'name'> | null;
+  product_colours: Pick<ProductColour, 'id' | 'name'> | null;
   display_systems: Pick<DisplaySystem, 'id' | 'name'> | null;
   product_images: Pick<ProductImage, 'id' | 'storage_path' | 'display_order'>[];
 };
@@ -33,6 +44,7 @@ export default function ProductCuration() {
   const [search, setSearch] = React.useState('');
   const [portalFilter, setPortalFilter] = React.useState<PortalFilter>('all');
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [expandedProductId, setExpandedProductId] = React.useState<string | null>(null);
   const [page, setPage] = React.useState(0);
   const [rows, setRows] = React.useState<ProductRow[]>([]);
   const [hasMore, setHasMore] = React.useState(false);
@@ -76,6 +88,30 @@ export default function ProductCuration() {
     enabled: !!selectedClientId,
   });
 
+  // Taxonomy lists for the per-client attribute override selects below
+  // -- staff pick from the same portal-native types/jewellery-held/
+  // colours managed on the Product taxonomy screen.
+  const { data: taxonomyTypes } = useQuery({ queryKey: ['product-taxonomy', 'types'], queryFn: () => productTaxonomyApi.list('types') });
+  const { data: taxonomyJewelleryTypes } = useQuery({
+    queryKey: ['product-taxonomy', 'jewellery-types'],
+    queryFn: () => productTaxonomyApi.list('jewellery-types'),
+  });
+  const { data: taxonomyColours } = useQuery({ queryKey: ['product-taxonomy', 'colours'], queryFn: () => productTaxonomyApi.list('colours') });
+
+  // Per-client overrides (024) for the currently-selected client --
+  // jewellery_count, plus the rarely-used product_type/jewellery_type/
+  // colour overrides.
+  const { data: attributeOverrides } = useQuery({
+    queryKey: ['client-product-attributes', selectedClientId],
+    queryFn: () => clientProductAttributesApi.list(selectedClientId!),
+    enabled: !!selectedClientId,
+  });
+  const overrideByProduct = React.useMemo(() => {
+    const map = new Map<string, ClientProductAttributeOverride>();
+    for (const row of attributeOverrides ?? []) map.set(row.product_id, row);
+    return map;
+  }, [attributeOverrides]);
+
   const {
     data: page_,
     isLoading: productsLoading,
@@ -86,7 +122,9 @@ export default function ProductCuration() {
     queryFn: async () => {
       let query = supabase
         .from('products')
-        .select('*, product_types(id, name), display_systems(id, name), product_images(id, storage_path, display_order)')
+        .select(
+          '*, product_types(id, name), product_jewellery_types(id, name), product_colours(id, name), display_systems(id, name), product_images(id, storage_path, display_order)'
+        )
         .order('name')
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
@@ -135,6 +173,19 @@ export default function ProductCuration() {
       setSelected(new Set());
       invalidate();
     },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  const saveOverride = useMutation({
+    mutationFn: ({ productId, input }: { productId: string; input: Parameters<typeof clientProductAttributesApi.upsert>[2] }) =>
+      clientProductAttributesApi.upsert(selectedClientId!, productId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-product-attributes', selectedClientId] }),
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  const clearOverride = useMutation({
+    mutationFn: (productId: string) => clientProductAttributesApi.remove(selectedClientId!, productId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-product-attributes', selectedClientId] }),
     onError: (err: Error) => setActionError(err.message),
   });
 
@@ -280,39 +331,78 @@ export default function ProductCuration() {
                   <th className="px-2 py-2 font-medium">Display system</th>
                   <th className="px-2 py-2 font-medium">Product type</th>
                   <th className="px-2 py-2 font-medium">Portal</th>
+                  <th className="px-2 py-2 font-medium">Attributes</th>
                   <th className="px-4 py-2 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((p) => {
                   const onPortal = portalProductIds?.has(p.id) ?? false;
+                  const override = overrideByProduct.get(p.id);
+                  const hasOverride =
+                    !!override &&
+                    (override.jewellery_count != null ||
+                      override.product_type_id != null ||
+                      override.jewellery_type_id != null ||
+                      override.colour_id != null);
+                  const expanded = expandedProductId === p.id;
                   return (
-                    <tr key={p.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
-                      <td className="px-4 py-2">
-                        <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} />
-                      </td>
-                      <td className="px-2 py-2">
-                        <ProductImageCell
-                          product={p}
-                          uploading={uploadImage.isPending && uploadImage.variables?.productId === p.id}
-                          onUpload={(file) => uploadImage.mutate({ productId: p.id, file })}
-                          onDelete={(imageId) => deleteImage.mutate({ productId: p.id, imageId })}
-                        />
-                      </td>
-                      <td className="px-2 py-2 font-mono text-xs">{p.sku}</td>
-                      <td className="px-2 py-2">{p.name}</td>
-                      <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.category ?? '—'}</td>
-                      <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.display_systems?.name ?? '—'}</td>
-                      <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.product_types?.name ?? '—'}</td>
-                      <td className="px-2 py-2">
-                        <Badge tone={onPortal ? 'success' : 'muted'}>{onPortal ? 'On portal' : 'Off'}</Badge>
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        <Button size="sm" variant="ghost" onClick={() => toggleOne.mutate(p)} disabled={toggleOne.isPending || !selectedClientId}>
-                          {onPortal ? 'Remove' : 'Add'}
-                        </Button>
-                      </td>
-                    </tr>
+                    <React.Fragment key={p.id}>
+                      <tr className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
+                        <td className="px-4 py-2">
+                          <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} />
+                        </td>
+                        <td className="px-2 py-2">
+                          <ProductImageCell
+                            product={p}
+                            uploading={uploadImage.isPending && uploadImage.variables?.productId === p.id}
+                            onUpload={(file) => uploadImage.mutate({ productId: p.id, file })}
+                            onDelete={(imageId) => deleteImage.mutate({ productId: p.id, imageId })}
+                          />
+                        </td>
+                        <td className="px-2 py-2 font-mono text-xs">{p.sku}</td>
+                        <td className="px-2 py-2">{p.name}</td>
+                        <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.category ?? '—'}</td>
+                        <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.display_systems?.name ?? '—'}</td>
+                        <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.product_types?.name ?? '—'}</td>
+                        <td className="px-2 py-2">
+                          <Badge tone={onPortal ? 'success' : 'muted'}>{onPortal ? 'On portal' : 'Off'}</Badge>
+                        </td>
+                        <td className="px-2 py-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!selectedClientId}
+                            onClick={() => setExpandedProductId(expanded ? null : p.id)}
+                          >
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                            {hasOverride ? 'Override set' : 'Set for client'}
+                          </Button>
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          <Button size="sm" variant="ghost" onClick={() => toggleOne.mutate(p)} disabled={toggleOne.isPending || !selectedClientId}>
+                            {onPortal ? 'Remove' : 'Add'}
+                          </Button>
+                        </td>
+                      </tr>
+                      {expanded && selectedClientId && (
+                        <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30 last:border-0">
+                          <td colSpan={10} className="px-4 py-3">
+                            <AttributesEditor
+                              product={p}
+                              override={override}
+                              taxonomyTypes={taxonomyTypes ?? []}
+                              taxonomyJewelleryTypes={taxonomyJewelleryTypes ?? []}
+                              taxonomyColours={taxonomyColours ?? []}
+                              saving={saveOverride.isPending && saveOverride.variables?.productId === p.id}
+                              clearing={clearOverride.isPending && clearOverride.variables === p.id}
+                              onSave={(input) => saveOverride.mutate({ productId: p.id, input })}
+                              onClear={() => clearOverride.mutate(p.id)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -333,6 +423,124 @@ export default function ProductCuration() {
             </div>
           )}
         </Card>
+      )}
+    </div>
+  );
+}
+
+// Per-client override editor for one product -- product type/
+// jewellery held/colour (blank = "use the product's global value",
+// rarely changed in practice) plus jewellery count (no global
+// fallback -- always client-set, same as it's always been). Mirrors
+// client_product_attributes (022, extended by 024) field for field.
+function AttributesEditor({
+  product,
+  override,
+  taxonomyTypes,
+  taxonomyJewelleryTypes,
+  taxonomyColours,
+  saving,
+  clearing,
+  onSave,
+  onClear,
+}: {
+  product: ProductRow;
+  override: ClientProductAttributeOverride | undefined;
+  taxonomyTypes: TaxonomyRow[];
+  taxonomyJewelleryTypes: TaxonomyRow[];
+  taxonomyColours: TaxonomyRow[];
+  saving: boolean;
+  clearing: boolean;
+  onSave: (input: { jewellery_count: number | null; product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }) => void;
+  onClear: () => void;
+}) {
+  const [jewelleryCount, setJewelleryCount] = React.useState(override?.jewellery_count?.toString() ?? '');
+  const [productTypeId, setProductTypeId] = React.useState(override?.product_type_id ?? '');
+  const [jewelleryTypeId, setJewelleryTypeId] = React.useState(override?.jewellery_type_id ?? '');
+  const [colourId, setColourId] = React.useState(override?.colour_id ?? '');
+
+  React.useEffect(() => {
+    setJewelleryCount(override?.jewellery_count?.toString() ?? '');
+    setProductTypeId(override?.product_type_id ?? '');
+    setJewelleryTypeId(override?.jewellery_type_id ?? '');
+    setColourId(override?.colour_id ?? '');
+  }, [override]);
+
+  const selectClass =
+    'h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]';
+
+  return (
+    <div className="flex flex-wrap items-end gap-4">
+      <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
+        Product type override
+        <span className="text-[10px]">Global: {product.product_types?.name ?? '—'}</span>
+        <select className={selectClass} value={productTypeId} onChange={(e) => setProductTypeId(e.target.value)}>
+          <option value="">Use global</option>
+          {taxonomyTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
+        Jewellery held override
+        <span className="text-[10px]">Global: {product.product_jewellery_types?.name ?? '—'}</span>
+        <select className={selectClass} value={jewelleryTypeId} onChange={(e) => setJewelleryTypeId(e.target.value)}>
+          <option value="">Use global</option>
+          {taxonomyJewelleryTypes.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
+        Colour override
+        <span className="text-[10px]">Global: {product.product_colours?.name ?? '—'}</span>
+        <select className={selectClass} value={colourId} onChange={(e) => setColourId(e.target.value)}>
+          <option value="">Use global</option>
+          {taxonomyColours.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
+        Jewellery count
+        <span className="text-[10px]">No global default -- client-set only</span>
+        <Input
+          type="number"
+          min={0}
+          value={jewelleryCount}
+          onChange={(e) => setJewelleryCount(e.target.value)}
+          className="h-8 w-24"
+        />
+      </label>
+
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={saving}
+        onClick={() =>
+          onSave({
+            jewellery_count: jewelleryCount.trim() === '' ? null : Math.max(0, Number(jewelleryCount) || 0),
+            product_type_id: productTypeId || null,
+            jewellery_type_id: jewelleryTypeId || null,
+            colour_id: colourId || null,
+          })
+        }
+      >
+        {saving ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : 'Save'}
+      </Button>
+      {override && (
+        <Button size="sm" variant="ghost" disabled={clearing} onClick={onClear}>
+          {clearing ? <Spinner className="h-3.5 w-3.5" /> : 'Clear all overrides'}
+        </Button>
       )}
     </div>
   );

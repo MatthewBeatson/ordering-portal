@@ -12,6 +12,17 @@ export type ProductRow = Product & {
   display_systems: Pick<DisplaySystem, 'id' | 'name' | 'display_order'> | null;
 };
 
+type OverrideRow = {
+  product_id: string;
+  jewellery_count: number | null;
+  product_type_id: string | null;
+  jewellery_type_id: string | null;
+  colour_id: string | null;
+  product_types: Pick<ProductType, 'id' | 'name' | 'display_order'> | null;
+  product_jewellery_types: Pick<ProductJewelleryType, 'id' | 'name' | 'display_order'> | null;
+  product_colours: Pick<ProductColour, 'id' | 'name' | 'display_order'> | null;
+};
+
 // Shared by every page that needs a client's curated products + price
 // tier + client-SKU labels (Catalog for browsing, Cart for the quick-
 // add bar) so there's one query implementation, not one per page.
@@ -19,13 +30,16 @@ export function useClientCatalog(clientId: string | undefined) {
   const { data: client } = useQuery({
     queryKey: ['client', clientId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('clients').select('id, name, cin7_price_tier').eq('id', clientId!).single();
+      const { data, error } = await supabase.from('clients').select('id, name, cin7_price_tier, show_pricing').eq('id', clientId!).single();
       if (error) throw error;
       return data as Client;
     },
     enabled: !!clientId,
   });
   const tierNumber = parseTierNumber(client?.cin7_price_tier);
+  // Defaults true while loading -- matches the column's own DB default,
+  // so pricing doesn't flash hidden then shown on every page load.
+  const showPricing = client?.show_pricing ?? true;
 
   const { data: clientSkus } = useQuery({
     queryKey: ['client-product-skus', clientId],
@@ -42,8 +56,39 @@ export function useClientCatalog(clientId: string | undefined) {
     return map;
   }, [clientSkus]);
 
+  // Per-client overrides (024) for product_type/jewellery_type/colour/
+  // jewellery_count -- global default + per-client override for all
+  // four, confirmed with the client. null in a column here means "no
+  // override -- use the product's global value."
+  const { data: attributeOverrides } = useQuery({
+    queryKey: ['client-product-attributes', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('client_product_attributes')
+        .select(
+          'product_id, jewellery_count, product_type_id, jewellery_type_id, colour_id, product_types(id, name, display_order), product_jewellery_types(id, name, display_order), product_colours(id, name, display_order)'
+        )
+        .eq('client_id', clientId!);
+      if (error) throw error;
+      return data as unknown as OverrideRow[];
+    },
+    enabled: !!clientId,
+  });
+  const overrideByProduct = React.useMemo(() => {
+    const map = new Map<string, OverrideRow>();
+    for (const row of attributeOverrides ?? []) map.set(row.product_id, row);
+    return map;
+  }, [attributeOverrides]);
+  const jewelleryCountByProduct = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of attributeOverrides ?? []) {
+      if (row.jewellery_count != null) map.set(row.product_id, row.jewellery_count);
+    }
+    return map;
+  }, [attributeOverrides]);
+
   const {
-    data: products,
+    data: rawProducts,
     isLoading: productsLoading,
     error: productsError,
   } = useQuery({
@@ -71,5 +116,26 @@ export function useClientCatalog(clientId: string | undefined) {
     enabled: !!clientId,
   });
 
-  return { client, tierNumber, clientSkuByProduct, products, productsLoading, productsError };
+  // Effective classification per product: a client override wins over
+  // the product's own global value, field by field. product_type and
+  // colour rarely have an override set in practice; jewellery_type/held
+  // is expected to commonly be overridden -- same resolution either way.
+  const products = React.useMemo(() => {
+    if (!rawProducts) return rawProducts;
+    return rawProducts.map((p) => {
+      const override = overrideByProduct.get(p.id);
+      if (!override) return p;
+      return {
+        ...p,
+        product_type_id: override.product_type_id ?? p.product_type_id,
+        product_types: override.product_type_id ? override.product_types : p.product_types,
+        jewellery_type_id: override.jewellery_type_id ?? p.jewellery_type_id,
+        product_jewellery_types: override.jewellery_type_id ? override.product_jewellery_types : p.product_jewellery_types,
+        colour_id: override.colour_id ?? p.colour_id,
+        product_colours: override.colour_id ? override.product_colours : p.product_colours,
+      };
+    });
+  }, [rawProducts, overrideByProduct]);
+
+  return { client, tierNumber, showPricing, clientSkuByProduct, jewelleryCountByProduct, products, productsLoading, productsError };
 }

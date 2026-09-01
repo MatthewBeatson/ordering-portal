@@ -2,3 +2,10 @@
 .env.*
 !.env.example
 node_modules/
+
+# Claude Code local-only state -- settings.local.json accumulates
+# machine-specific permission grants (and has held raw API keys in
+# permission-rule strings), scheduled_tasks.lock is per-process. Only
+# launch.json (dev server config) is meant to be shared via git.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

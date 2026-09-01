@@ -12,7 +12,13 @@ interface QuickOrderBarProps {
   // grouping/filter/search state -- quick-add always searches everything.
   products: Product[];
   clientSkuByProduct: Map<string, string>;
+  // tierNumber stays real even when showPricing is false -- it's what
+  // computes the unit_price attached to the cart line on add, which
+  // still has to flow through to Cin7 regardless of what this client's
+  // buyers can see. showPricing only gates the inline price shown in
+  // the match list below.
   tierNumber: number | null;
+  showPricing: boolean;
 }
 
 const MAX_MATCHES = 8;
@@ -31,7 +37,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
 // button users) -> adds to cart and resets, focus back on Search for the
 // next item. Built for someone working off a phone/paper order list who
 // wants to never touch the mouse.
-export function QuickOrderBar({ products, clientSkuByProduct, tierNumber }: QuickOrderBarProps) {
+export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPricing }: QuickOrderBarProps) {
   const cart = useCart();
   const [query, setQuery] = React.useState('');
   const [selected, setSelected] = React.useState<Product | null>(null);
@@ -193,7 +199,9 @@ export function QuickOrderBar({ products, clientSkuByProduct, tierNumber }: Quic
                   <span>
                     <span className="font-mono text-xs text-[var(--muted-foreground)]">{p.sku}</span> {p.name}
                   </span>
-                  {tierNumber && <span className="tabular-nums text-[var(--muted-foreground)]">{money(tierPrice(p, tierNumber))}</span>}
+                  {tierNumber && showPricing && (
+                    <span className="tabular-nums text-[var(--muted-foreground)]">{money(tierPrice(p, tierNumber))}</span>
+                  )}
                 </li>
               ))}
             </ul>

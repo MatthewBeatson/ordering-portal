@@ -156,6 +156,42 @@ export interface ManageableClient {
 
 export const clientsApi = {
   listManageable: () => request<{ clients: ManageableClient[] }>('GET', '/clients'),
+  updateShowPricing: (id: string, showPricing: boolean) =>
+    request<{ id: string; name: string; show_pricing: boolean }>('PATCH', `/clients/${id}/show-pricing`, { show_pricing: showPricing }),
+};
+
+export type TaxonomyKind = 'types' | 'jewellery-types' | 'colours';
+
+export interface TaxonomyRow {
+  id: string;
+  name: string;
+  display_order: number;
+}
+
+export const productTaxonomyApi = {
+  list: (kind: TaxonomyKind) => request<{ rows: TaxonomyRow[] }>('GET', `/product-taxonomy/${kind}`).then((r) => r.rows),
+  create: (kind: TaxonomyKind, input: { name: string; display_order?: number }) =>
+    request<TaxonomyRow>('POST', `/product-taxonomy/${kind}`, input),
+  update: (kind: TaxonomyKind, id: string, input: { name?: string; display_order?: number }) =>
+    request<TaxonomyRow>('PATCH', `/product-taxonomy/${kind}/${id}`, input),
+  remove: (kind: TaxonomyKind, id: string) => request<void>('DELETE', `/product-taxonomy/${kind}/${id}`),
+};
+
+export interface ClientProductAttributeOverrideInput {
+  jewellery_count: number | null;
+  product_type_id: string | null;
+  jewellery_type_id: string | null;
+  colour_id: string | null;
+}
+
+export const clientProductAttributesApi = {
+  list: (clientId: string) =>
+    request<{ rows: import('./types').ClientProductAttributeOverride[] }>('GET', `/client-product-attributes/${clientId}`).then(
+      (r) => r.rows
+    ),
+  upsert: (clientId: string, productId: string, input: ClientProductAttributeOverrideInput) =>
+    request<import('./types').ClientProductAttributeOverride>('PATCH', `/client-product-attributes/${clientId}/${productId}`, input),
+  remove: (clientId: string, productId: string) => request<void>('DELETE', `/client-product-attributes/${clientId}/${productId}`),
 };
 
 export interface StaffMember {

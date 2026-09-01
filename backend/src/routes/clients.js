@@ -23,4 +23,12 @@ router.post(
   })
 );
 
+router.patch(
+  '/:id/show-pricing',
+  asyncHandler(async (req, res) => {
+    const client = await clientsService.updateShowPricing(req, req.params.id, req.body?.show_pricing);
+    res.json(client);
+  })
+);
+
 module.exports = router;

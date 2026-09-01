@@ -6,6 +6,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useClientCatalog } from '@/lib/useClientCatalog';
+import { useResolvedLines } from '@/lib/useResolvedLines';
+import { groupProducts, type GroupMode } from '@/lib/groupProducts';
 import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -14,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
+import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import type { ClientAddress } from '@/lib/types';
 import { Trash2, MapPin, Pencil, X } from 'lucide-react';
@@ -37,7 +40,15 @@ export default function Cart() {
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
-  const { tierNumber, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
+  // tierNumber stays real regardless of showPricing -- see Catalog.tsx's
+  // note; it's what QuickOrderBar computes unit_price from on add.
+  const { tierNumber, showPricing, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
+  const { bySku } = useResolvedLines(cart.lines.map((l) => l.sku), currentStore?.client_id);
+  const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
+  const groups = React.useMemo(
+    () => groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems, (l) => bySku.get(l.sku)?.product_types),
+    [cart.lines, groupMode, bySku]
+  );
 
   // Editing an existing pending order: fetch it once and hydrate the
   // (already-cleared, see CartContext.startEditingOrder) cart lines +
@@ -97,7 +108,7 @@ export default function Cart() {
   }
 
   const total = cart.lines.reduce((sum, l) => sum + (l.unit_price ?? 0) * l.quantity, 0);
-  const hasPricing = cart.lines.some((l) => l.unit_price != null);
+  const hasPricing = cart.lines.some((l) => l.unit_price != null) && showPricing;
   const isEmpty = cart.lines.length === 0;
   const isEditing = !!cart.editingOrderId;
 
@@ -118,6 +129,7 @@ export default function Cart() {
         </div>
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
+          {!isEmpty && <GroupModeToggle value={groupMode} onChange={setGroupMode} />}
           {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSizePreference} allowHide={false} />}
           {isEditing && (
             <Button size="sm" variant="ghost" onClick={cancelEdit}>
@@ -131,7 +143,7 @@ export default function Cart() {
       {products && products.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} />
+          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} />
         </div>
       )}
 
@@ -147,68 +159,76 @@ export default function Cart() {
         </Card>
       ) : (
         <>
-      <Card className="overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
-              {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
-              <th className="px-2 py-2 font-medium">SKU</th>
-              <th className="px-2 py-2 font-medium">Description</th>
-              <th className="px-2 py-2 font-medium">Qty</th>
-              {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
-              {hasPricing && <th className="px-2 py-2 text-right font-medium">Line total</th>}
-              <th className="w-10 px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {cart.lines.map((line) => {
-              const thumb = thumbnails?.get(line.sku);
-              return (
-                <tr key={line.sku} className="border-b border-[var(--border)] last:border-0">
-                  {showImages && (
-                    <td className="px-4 py-2">
-                      {thumb ? (
-                        <img src={thumb} alt={line.description ?? line.sku} className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`} />
-                      ) : (
-                        <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
-                      )}
-                    </td>
-                  )}
-                  <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
-                  <td className="px-2 py-2">{line.description ?? '—'}</td>
-                  <td className="px-2 py-2">
-                    <Input
-                      type="number"
-                      min={1}
-                      value={line.quantity}
-                      onChange={(e) => cart.setQuantity(line.sku, Math.max(1, Number(e.target.value) || 1))}
-                      className="h-8 w-16 px-2"
-                    />
-                  </td>
-                  {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
-                  {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
-                  <td className="px-4 py-2 text-right">
-                    <button onClick={() => cart.removeLine(line.sku)} className="text-[var(--muted-foreground)] hover:text-[var(--danger)]">
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-          {hasPricing && (
-            <tfoot>
-              <tr>
-                <td colSpan={showImages ? 5 : 4} className="px-4 py-2 text-right text-sm font-medium">
-                  Total
-                </td>
-                <td className="px-2 py-2 text-right text-sm font-semibold tabular-nums">{money(total)}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </Card>
+      {groups.map((group) => (
+        <Card key={group.key} className="overflow-hidden">
+          <div className="border-b border-[var(--border)] bg-[var(--muted)] px-4 py-2 text-sm font-semibold">{group.label}</div>
+          {group.subgroups.map((sub) => (
+            <div key={sub.key}>
+              {sub.label && (
+                <div className="border-b border-[var(--border)] px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                  {sub.label}
+                </div>
+              )}
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
+                    {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
+                    <th className="px-2 py-2 font-medium">SKU</th>
+                    <th className="px-2 py-2 font-medium">Description</th>
+                    <th className="px-2 py-2 font-medium">Qty</th>
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Line total</th>}
+                    <th className="w-10 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sub.rows.map((line) => {
+                    const thumb = thumbnails?.get(line.sku);
+                    return (
+                      <tr key={line.sku} className="border-b border-[var(--border)] last:border-0">
+                        {showImages && (
+                          <td className="px-4 py-2">
+                            {thumb ? (
+                              <img src={thumb} alt={line.description ?? line.sku} className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`} />
+                            ) : (
+                              <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
+                            )}
+                          </td>
+                        )}
+                        <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
+                        <td className="px-2 py-2">{line.description ?? '—'}</td>
+                        <td className="px-2 py-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            value={line.quantity}
+                            onChange={(e) => cart.setQuantity(line.sku, Math.max(1, Number(e.target.value) || 1))}
+                            className="h-8 w-16 px-2"
+                          />
+                        </td>
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
+                        <td className="px-4 py-2 text-right">
+                          <button onClick={() => cart.removeLine(line.sku)} className="text-[var(--muted-foreground)] hover:text-[var(--danger)]">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </Card>
+      ))}
+
+      {hasPricing && (
+        <Card className="flex items-center justify-end gap-3 px-4 py-2">
+          <span className="text-sm font-medium">Total</span>
+          <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+        </Card>
+      )}
 
       {defaultAddress && (
         <Card className="p-4">

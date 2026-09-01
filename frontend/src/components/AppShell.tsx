@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { useCart } from '@/lib/CartContext';
 import { cn } from '@/lib/utils';
-import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut, Settings, ShieldCheck } from 'lucide-react';
+import { LayoutGrid, ShoppingCart, ClipboardList, CheckSquare, Boxes, LogOut, Settings, ShieldCheck, Tags, DollarSign } from 'lucide-react';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
@@ -53,10 +53,22 @@ export function AppShell() {
               Product curation
             </NavLink>
           )}
+          {isPortalAdmin && (
+            <NavLink to="/admin/product-taxonomy" className={navLinkClass}>
+              <Tags className="h-4 w-4" />
+              Product taxonomy
+            </NavLink>
+          )}
           {isSuperAdmin && (
             <NavLink to="/admin/staff" className={navLinkClass}>
               <ShieldCheck className="h-4 w-4" />
               Staff
+            </NavLink>
+          )}
+          {isSuperAdmin && (
+            <NavLink to="/admin/client-settings" className={navLinkClass}>
+              <DollarSign className="h-4 w-4" />
+              Client settings
             </NavLink>
           )}
         </nav>
