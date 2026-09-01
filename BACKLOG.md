@@ -41,16 +41,21 @@ SKUs across orders get shown, whether quantities sum or stay
 per-order) — same kind of mockup exercise as the Catalog grouping was.
 
 ## Jewellery-count breakdown table (Catalog + Cart)
-Once Attributes 1-3 (Type/Jewellery held/Colour, `018_product_jewellery_types.sql`
-era) are actually populated in Cin7 and synced -- **Attribute 5** (Numeric
-type, up to 4 decimal places, confirmed supported by Cin7) becomes each
-product's jewellery-item capacity, e.g. "this tray displays 12 rings."
-Deliberately NOT parsed from the free-text description -- too
-unreliable, a real numeric field is the correct source.
+**Superseded 2026-08 from the original Cin7-Attribute-5 plan below**:
+confirmed with the client that jewellery count can genuinely vary
+*per client* for the same physical SKU (unlike product_type/colour,
+which are fixed physical facts) -- Cin7 attributes have no per-customer
+dimension, so this can't be Cin7-sourced at all. Lives instead in
+`client_product_attributes.jewellery_count` (`022_client_product_attributes.sql`,
+already migrated) -- staff-entered directly in the portal, NULL means
+"no override set" for that client/product pair. No curation UI yet;
+that's the immediate next build (see the product-content workflow
+discussion this session).
 
-`products.jewellery_capacity` (nullable numeric) synced the same way
-as the other Attribute-sourced fields, paired with the product's own
-`jewellery_type_id` (Attribute 2) to know *what* it's a count of.
+~~Once Attributes 1-3 ... are actually populated in Cin7 and synced --
+Attribute 5 (Numeric type) becomes each product's jewellery-item
+capacity ... `products.jewellery_capacity` synced the same way as the
+other Attribute-sourced fields~~ -- superseded, see above.
 
 A small toggle-able table (Show/Hide, same interaction as
 `ImageSizeToggle`) on both Cart and Catalog: sums `quantity ×
@@ -80,9 +85,12 @@ or whether that step also needs the 3rd party. Deliberately deferred --
 user asked to hold off until the daily-report auth migration + Resend
 setup are finished, then revisit.
 
-## Product image upload + resize
-No staff-facing upload screen exists yet — images have to be inserted
-into the `product-images` Storage bucket directly. When built, auto-
-resize/compress on upload so a large source photo doesn't get stored
-at full resolution when it only ever displays at ~80px (Catalog
-thumbnail) — decouples "looks good on screen" from "small file size."
+## Product image resize
+**Upload screen is done** (Product Curation's `ProductImageCell` +
+`POST /products/:id/images`, multer-backed) -- staff can upload/replace/
+delete a product's image directly today. Still open: auto-resize/
+compress on upload so a large source photo doesn't get stored at full
+resolution when it only ever displays at ~80-224px (Catalog/Cart/Order
+Detail thumbnails) — decouples "looks good on screen" from "small file
+size." Not yet a real problem at current product-image volume, but
+worth doing before a big batch upload.
