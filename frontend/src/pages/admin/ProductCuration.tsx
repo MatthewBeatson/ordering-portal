@@ -206,6 +206,19 @@ export default function ProductCuration() {
     onError: (err: Error) => setActionError(err.message),
   });
 
+  // jewellery_count is a plain number, not a taxonomy-table FK, so it
+  // gets its own mutation rather than overloading updateTaxonomy's
+  // field union -- same endpoint (products/:id/taxonomy), simpler local
+  // state patch (no nested taxonomy object to resolve).
+  const updateJewelleryCount = useMutation({
+    mutationFn: ({ productId, value }: { productId: string; value: number | null }) =>
+      productsApi.updateTaxonomy(productId, { jewellery_count: value }),
+    onSuccess: (_result, { productId, value }) => {
+      setRows((prev) => prev.map((p) => (p.id === productId ? { ...p, jewellery_count: value } : p)));
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
   const sync = useMutation({
     mutationFn: () => productsApi.sync(),
     onSuccess: (result) => {
@@ -349,6 +362,7 @@ export default function ProductCuration() {
                   <th className="px-2 py-2 font-medium">Product type</th>
                   <th className="px-2 py-2 font-medium">Jewellery held</th>
                   <th className="px-2 py-2 font-medium">Colour</th>
+                  <th className="px-2 py-2 font-medium">Jewellery count</th>
                   <th className="px-2 py-2 font-medium">Portal</th>
                   <th className="px-2 py-2 font-medium">Attributes</th>
                   <th className="px-4 py-2 font-medium"></th>
@@ -405,6 +419,12 @@ export default function ProductCuration() {
                           />
                         </td>
                         <td className="px-2 py-2">
+                          <JewelleryCountInput
+                            value={p.jewellery_count}
+                            onSave={(value) => updateJewelleryCount.mutate({ productId: p.id, value })}
+                          />
+                        </td>
+                        <td className="px-2 py-2">
                           <Badge tone={onPortal ? 'success' : 'muted'}>{onPortal ? 'On portal' : 'Off'}</Badge>
                         </td>
                         <td className="px-2 py-2">
@@ -426,7 +446,7 @@ export default function ProductCuration() {
                       </tr>
                       {expanded && selectedClientId && (
                         <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30 last:border-0">
-                          <td colSpan={12} className="px-4 py-3">
+                          <td colSpan={13} className="px-4 py-3">
                             <AttributesEditor
                               product={p}
                               override={override}
@@ -486,6 +506,32 @@ function TaxonomySelect({ value, options, onChange }: { value: string | null; op
         </option>
       ))}
     </select>
+  );
+}
+
+// Inline editable number input for a product's own GLOBAL
+// jewellery_count (026) -- commits on blur/Enter rather than every
+// keystroke, same reasoning as ProductTaxonomy.tsx's display_order
+// field.
+function JewelleryCountInput({ value, onSave }: { value: number | null; onSave: (value: number | null) => void }) {
+  const [text, setText] = React.useState(value?.toString() ?? '');
+  React.useEffect(() => setText(value?.toString() ?? ''), [value]);
+
+  function commit() {
+    const next = text.trim() === '' ? null : Math.max(0, Number(text) || 0);
+    if (next !== value) onSave(next);
+  }
+
+  return (
+    <Input
+      type="number"
+      min={0}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+      className="h-8 w-20 px-2 text-xs"
+    />
   );
 }
 
@@ -572,8 +618,8 @@ function AttributesEditor({
       </label>
 
       <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
-        Jewellery count
-        <span className="text-[10px]">No global default -- client-set only</span>
+        Jewellery count override
+        <span className="text-[10px]">Global: {product.jewellery_count ?? '—'}</span>
         <Input
           type="number"
           min={0}

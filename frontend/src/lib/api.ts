@@ -122,9 +122,9 @@ export const productsApi = {
   deleteImage: (imageId: string) => request<void>('DELETE', `/products/images/${imageId}`),
   updateTaxonomy: (
     productId: string,
-    input: Partial<{ product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }>
+    input: Partial<{ product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null; jewellery_count: number | null }>
   ) =>
-    request<{ id: string; product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }>(
+    request<{ id: string; product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null; jewellery_count: number | null }>(
       'PATCH',
       `/products/${productId}/taxonomy`,
       input

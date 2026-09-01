@@ -79,13 +79,6 @@ export function useClientCatalog(clientId: string | undefined) {
     for (const row of attributeOverrides ?? []) map.set(row.product_id, row);
     return map;
   }, [attributeOverrides]);
-  const jewelleryCountByProduct = React.useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of attributeOverrides ?? []) {
-      if (row.jewellery_count != null) map.set(row.product_id, row.jewellery_count);
-    }
-    return map;
-  }, [attributeOverrides]);
 
   const {
     data: rawProducts,
@@ -119,7 +112,8 @@ export function useClientCatalog(clientId: string | undefined) {
   // Effective classification per product: a client override wins over
   // the product's own global value, field by field. product_type and
   // colour rarely have an override set in practice; jewellery_type/held
-  // is expected to commonly be overridden -- same resolution either way.
+  // and jewellery_count are expected to commonly be overridden -- same
+  // resolution either way.
   const products = React.useMemo(() => {
     if (!rawProducts) return rawProducts;
     return rawProducts.map((p) => {
@@ -133,9 +127,18 @@ export function useClientCatalog(clientId: string | undefined) {
         product_jewellery_types: override.jewellery_type_id ? override.product_jewellery_types : p.product_jewellery_types,
         colour_id: override.colour_id ?? p.colour_id,
         product_colours: override.colour_id ? override.product_colours : p.product_colours,
+        jewellery_count: override.jewellery_count ?? p.jewellery_count,
       };
     });
   }, [rawProducts, overrideByProduct]);
+
+  const jewelleryCountByProduct = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of products ?? []) {
+      if (p.jewellery_count != null) map.set(p.id, p.jewellery_count);
+    }
+    return map;
+  }, [products]);
 
   return { client, tierNumber, showPricing, clientSkuByProduct, jewelleryCountByProduct, products, productsLoading, productsError };
 }

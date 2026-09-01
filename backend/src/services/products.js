@@ -28,19 +28,28 @@ function requireClientId(clientId) {
 }
 
 // Sets a product's own GLOBAL classification -- product_type_id/
-// jewellery_type_id/colour_id on `products` itself, as distinct from a
-// per-client override (client_product_attributes, see
-// services/clientProductAttributes.js). Portal-native as of 023 -- no
-// longer Cin7-sourced, so this is the only way these ever get set now.
-// Partial update: only the keys actually present in input are touched,
-// so the curation UI can change one dropdown at a time.
-const TAXONOMY_FIELDS = ['product_type_id', 'jewellery_type_id', 'colour_id'];
+// jewellery_type_id/colour_id (FKs) and jewellery_count (integer) on
+// `products` itself, as distinct from a per-client override
+// (client_product_attributes, see services/clientProductAttributes.js,
+// which resolves as override-if-set-else-this-global-value for all
+// four). Portal-native as of 023/026 -- no longer Cin7-sourced, so this
+// is the only way these ever get set now. Partial update: only the
+// keys actually present in input are touched, so the curation UI can
+// change one field at a time.
+const TAXONOMY_REF_FIELDS = ['product_type_id', 'jewellery_type_id', 'colour_id'];
 
 async function updateTaxonomy(req, productId, input) {
   requireStaff(req);
   const patch = {};
-  for (const field of TAXONOMY_FIELDS) {
+  for (const field of TAXONOMY_REF_FIELDS) {
     if (field in (input || {})) patch[field] = input[field] || null;
+  }
+  if (input && 'jewellery_count' in input) {
+    const count = input.jewellery_count;
+    if (count != null && (!Number.isInteger(count) || count < 0)) {
+      throw new ApiError(400, 'jewellery_count must be a non-negative integer or null');
+    }
+    patch.jewellery_count = count ?? null;
   }
   if (Object.keys(patch).length === 0) throw new ApiError(400, 'Nothing to update');
 
@@ -48,7 +57,7 @@ async function updateTaxonomy(req, productId, input) {
     .from('products')
     .update(patch)
     .eq('id', productId)
-    .select('id, product_type_id, jewellery_type_id, colour_id')
+    .select('id, product_type_id, jewellery_type_id, colour_id, jewellery_count')
     .maybeSingle();
   if (error) throw new ApiError(500, 'Failed to update product classification', error.message);
   if (!data) throw new ApiError(404, 'Product not found');

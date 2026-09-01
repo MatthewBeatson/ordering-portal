@@ -85,6 +85,9 @@ export interface Product {
   product_type_id: string | null;
   jewellery_type_id: string | null;
   colour_id: string | null;
+  // Global default -- client_product_attributes.jewellery_count
+  // overrides this per client when set. See useClientCatalog.ts.
+  jewellery_count: number | null;
   display_system_id: string | null;
   is_active: boolean;
   price_tier_1: number | null;
