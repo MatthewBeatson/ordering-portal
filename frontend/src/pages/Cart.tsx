@@ -27,16 +27,10 @@ export default function Cart() {
   const navigate = useNavigate();
   const [notes, setNotes] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
-  // Shared, per-user-persisted preference (see AuthContext) -- but no
-  // "hide" option on Cart, deliberately, regardless of what it's set to
-  // elsewhere: a buyer should never be able to lose sight of what
-  // they're actually about to submit vs. what they think they're
-  // ordering. Clamped to "small" here rather than writing that back to
-  // the shared preference, so Catalog/OrderDetail aren't affected by
-  // just having visited Cart.
-  const { imageSizePreference, setImageSizePreference } = useAuth();
-  const imageSize = imageSizePreference === 'hide' ? 'small' : imageSizePreference;
-  const showImages = true;
+  // Shared, per-user-persisted preference (see AuthContext) -- same
+  // full hide/small/large cycle as Catalog/Order Detail now.
+  const { imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
+  const showImages = imageSize !== 'hide';
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
@@ -130,7 +124,7 @@ export default function Cart() {
         <div className="flex items-center gap-3">
           {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
           {!isEmpty && <GroupModeToggle value={groupMode} onChange={setGroupMode} />}
-          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSizePreference} allowHide={false} />}
+          {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} />}
           {isEditing && (
             <Button size="sm" variant="ghost" onClick={cancelEdit}>
               <X className="h-3.5 w-3.5" />
