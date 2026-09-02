@@ -158,6 +158,11 @@ export const storesApi = {
     request<ManageableStore>('PATCH', `/stores/${id}/store-number`, { store_number: storeNumber }),
   updateClientAddress: (id: string, clientAddressId: string | null) =>
     request<ManageableStore>('PATCH', `/stores/${id}/client-address`, { client_address_id: clientAddressId }),
+  importAddresses: (clientId: string, rows: { store_number: string; address: string }[]) =>
+    request<{
+      matched: { store_number: string; store_id: string; client_address_id: string }[];
+      unmatched: { store_number: string; reason: string }[];
+    }>('POST', '/stores/import-addresses', { client_id: clientId, rows }),
   create: (input: CreateStoreInput) => request<ManageableStore>('POST', '/stores', input),
 };
 

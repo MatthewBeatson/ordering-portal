@@ -55,7 +55,11 @@ async function fetchFullSale(saleId) {
   return res.ok ? res.body : null;
 }
 
-async function createSaleHeader(order, store, client) {
+// shippingAddress is a plain {Line1, Line2, City, State, Postcode,
+// Country} object -- resolving WHICH address that is (a store's
+// matched Cin7 address vs. its pinned fallback fields) is sync.js's
+// job, not this file's; client.js stays a pure Cin7 HTTP layer.
+async function createSaleHeader(order, shippingAddress, client) {
   return cin7Fetch('POST', '/Sale', {
     CustomerID: client.cin7_customer_id,
     SkipQuote: true,
@@ -68,14 +72,7 @@ async function createSaleHeader(order, store, client) {
     // staff-set per client for anything non-NZD (005_client_tax.sql's
     // sibling column, 015_client_currency_rate.sql).
     CurrencyRate: client.cin7_currency_rate ?? 1,
-    ShippingAddress: {
-      Line1: store.cin7_address_line1,
-      Line2: store.cin7_address_line2 || undefined,
-      City: store.cin7_address_city || undefined,
-      State: store.cin7_address_state || undefined,
-      Postcode: store.cin7_address_postcode || undefined,
-      Country: store.cin7_address_country || undefined,
-    },
+    ShippingAddress: shippingAddress,
   });
 }
 

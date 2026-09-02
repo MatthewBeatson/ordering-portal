@@ -13,6 +13,42 @@ const { buildSaleOrderLines } = require('./lines');
 
 // Fields we need before it's even worth calling Cin7. Failing fast here
 // beats sending a request we already know is malformed.
+// Resolves the address actually sent to Cin7 for this Sale. The
+// store's matched Cin7 address (stores.client_address_id, 027) wins
+// when assigned -- it's the client's own real Cin7 data, kept in sync.
+// Falls back to the store's pinned cin7_address_* fields (the only
+// thing that existed before 027, and still the one validateSyncable
+// requires) if nothing's assigned, or if the assigned address has
+// since vanished (e.g. removed in Cin7 and pruned by addressSync.js) --
+// never fails a sync over this, just falls through.
+async function resolveShippingAddress(store) {
+  if (store.client_address_id) {
+    const { data: address, error } = await supabaseAdmin
+      .from('client_addresses')
+      .select('line1, line2, city, state, postcode, country')
+      .eq('id', store.client_address_id)
+      .maybeSingle();
+    if (!error && address) {
+      return {
+        Line1: address.line1,
+        Line2: address.line2 || undefined,
+        City: address.city || undefined,
+        State: address.state || undefined,
+        Postcode: address.postcode || undefined,
+        Country: address.country || undefined,
+      };
+    }
+  }
+  return {
+    Line1: store.cin7_address_line1,
+    Line2: store.cin7_address_line2 || undefined,
+    City: store.cin7_address_city || undefined,
+    State: store.cin7_address_state || undefined,
+    Postcode: store.cin7_address_postcode || undefined,
+    Country: store.cin7_address_country || undefined,
+  };
+}
+
 function validateSyncable(client, store, lines) {
   const problems = [];
   if (!client?.cin7_customer_id) problems.push('client has no cin7_customer_id');
@@ -152,7 +188,8 @@ async function syncOrderToCin7(order) {
         orderResBody = orderRes.body;
       }
     } else {
-      const saleRes = await cin7.createSaleHeader(fresh, store, client);
+      const shippingAddress = await resolveShippingAddress(store);
+      const saleRes = await cin7.createSaleHeader(fresh, shippingAddress, client);
       if (!saleRes.ok) {
         return recordFailed(fresh.id, cin7.cin7ErrorMessage(saleRes));
       }

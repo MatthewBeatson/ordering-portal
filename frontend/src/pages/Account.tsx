@@ -6,8 +6,9 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Check, Plus } from 'lucide-react';
+import { Check, Plus, Download, Upload } from 'lucide-react';
 import type { ClientAddress } from '@/lib/types';
+import { parseCsv, downloadCsv } from '@/lib/csv';
 
 // Client-admins and Shonrei staff manage store reference numbers --
 // and now whole stores -- directly here instead of needing Supabase
@@ -117,15 +118,100 @@ function ClientStoreGroup({
     onSuccess: onChanged,
   });
 
+  const [importResult, setImportResult] = React.useState<{ matched: number; unmatched: { store_number: string; reason: string }[] } | null>(
+    null
+  );
+  const importFileRef = React.useRef<HTMLInputElement>(null);
+
+  const importAddresses = useMutation({
+    mutationFn: (rows: { store_number: string; address: string }[]) => storesApi.importAddresses(clientId, rows),
+    onSuccess: (result) => {
+      setImportResult({ matched: result.matched.length, unmatched: result.unmatched });
+      onChanged();
+    },
+  });
+
+  // Expects a header row (store_number,address -- order matters, names
+  // don't) from a client-supplied sheet -- see storesApi.importAddresses'
+  // matching logic (text-matches "address" against this client's
+  // already-synced Cin7 addresses; ambiguous/missing matches are
+  // reported back, never guessed).
+  function handleImportFile(file: File) {
+    setImportResult(null);
+    file.text().then((text) => {
+      const parsed = parseCsv(text);
+      const dataRows = parsed.slice(1); // drop header row
+      const rows = dataRows.map(([store_number, address]) => ({ store_number: store_number ?? '', address: address ?? '' }));
+      if (rows.length === 0) return;
+      importAddresses.mutate(rows);
+    });
+  }
+
+  function handleExport() {
+    const header = ['store_number', 'store_name', 'address_line1', 'city', 'state', 'postcode', 'country'];
+    const rows = stores.map((s) => {
+      const address = clientAddresses?.find((a) => a.id === s.client_address_id);
+      return [s.store_number ?? '', s.name, address?.line1 ?? '', address?.city ?? '', address?.state ?? '', address?.postcode ?? '', address?.country ?? ''];
+    });
+    downloadCsv(`${clientName.replace(/[^a-z0-9]+/gi, '-')}-store-addresses.csv`, [header, ...rows]);
+  }
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{clientName}</h2>
-        <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
-          <Plus className="h-3.5 w-3.5" />
-          Add store
-        </Button>
+        <div className="flex items-center gap-2">
+          <input
+            ref={importFileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportFile(file);
+              e.target.value = '';
+            }}
+          />
+          <Button size="sm" variant="ghost" disabled={stores.length === 0} onClick={handleExport}>
+            <Download className="h-3.5 w-3.5" />
+            Export addresses
+          </Button>
+          <Button size="sm" variant="ghost" disabled={importAddresses.isPending} onClick={() => importFileRef.current?.click()}>
+            {importAddresses.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
+            Import addresses (CSV)
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+            <Plus className="h-3.5 w-3.5" />
+            Add store
+          </Button>
+        </div>
       </div>
+
+      {importAddresses.isError && <p className="text-sm text-[var(--danger)]">{(importAddresses.error as Error).message}</p>}
+      {importResult && (
+        <Card className="p-3 text-xs">
+          <p className="text-[var(--success)]">
+            {importResult.matched} store{importResult.matched === 1 ? '' : 's'} matched and assigned.
+          </p>
+          {importResult.unmatched.length > 0 && (
+            <div className="mt-1 text-[var(--muted-foreground)]">
+              <p>{importResult.unmatched.length} not matched -- assign these manually below:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {importResult.unmatched.map((u, i) => (
+                  <li key={i}>
+                    <span className="font-mono">{u.store_number || '(blank)'}</span>: {u.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
+      <p className="text-xs text-[var(--muted-foreground)]">
+        CSV format: a header row, then one row per store -- <span className="font-mono">store_number,address</span>. "address" is
+        matched (fuzzy, case-insensitive) against this client's synced Cin7 addresses; anything ambiguous or unmatched is
+        reported, never guessed.
+      </p>
 
       {stores.length === 0 && !showAddForm && (
         <Card className="p-4 text-sm text-[var(--muted-foreground)]">No stores yet.</Card>

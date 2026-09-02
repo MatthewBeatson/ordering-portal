@@ -97,6 +97,70 @@ async function updateClientAddress(req, storeId, clientAddressId) {
   return data;
 }
 
+// Bulk store<->Cin7-address matching from a client-supplied sheet
+// (store number + free-text address, no stable Cin7 ID to key off --
+// unlike our own export below). Text-matches each row's address
+// against this client's already-synced client_addresses.line1 (case-
+// insensitive substring, either direction, since a client's own
+// spreadsheet formatting won't exactly match Cin7's). Never guesses on
+// an ambiguous/missing match -- reports it instead so staff resolve it
+// by hand in the "Ship-to address" dropdown.
+async function importAddressMatches(req, clientId, rows) {
+  const { isPortalAdmin, clientRoles } = req.roles;
+  if (!clientId || typeof clientId !== 'string') throw new ApiError(400, 'client_id is required');
+  const isClientAdminOfThisClient = clientRoles.some((r) => r.client_id === clientId);
+  if (!isPortalAdmin && !isClientAdminOfThisClient) {
+    throw new ApiError(403, 'You do not have permission to manage stores for this client');
+  }
+  if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
+
+  const { data: stores, error: storesErr } = await supabaseAdmin.from('stores').select('id, store_number').eq('client_id', clientId);
+  if (storesErr) throw new ApiError(500, 'Failed to load stores', storesErr.message);
+  const { data: addresses, error: addrErr } = await supabaseAdmin.from('client_addresses').select('id, line1').eq('client_id', clientId);
+  if (addrErr) throw new ApiError(500, 'Failed to load addresses', addrErr.message);
+
+  const matched = [];
+  const unmatched = [];
+
+  for (const row of rows) {
+    const storeNumber = String(row?.store_number ?? '').trim();
+    const addressText = String(row?.address ?? '').trim();
+    if (!storeNumber || !addressText) {
+      unmatched.push({ store_number: storeNumber, reason: 'missing store_number or address' });
+      continue;
+    }
+
+    const store = stores.find((s) => (s.store_number || '').trim().toLowerCase() === storeNumber.toLowerCase());
+    if (!store) {
+      unmatched.push({ store_number: storeNumber, reason: 'no store with this store_number' });
+      continue;
+    }
+
+    const needle = addressText.toLowerCase();
+    const candidates = addresses.filter((a) => {
+      const line1 = (a.line1 || '').toLowerCase();
+      return line1.includes(needle) || needle.includes(line1);
+    });
+    if (candidates.length === 0) {
+      unmatched.push({ store_number: storeNumber, reason: `no synced address matches "${addressText}"` });
+      continue;
+    }
+    if (candidates.length > 1) {
+      unmatched.push({ store_number: storeNumber, reason: `"${addressText}" matches ${candidates.length} synced addresses -- ambiguous, assign manually` });
+      continue;
+    }
+
+    const { error: updateErr } = await supabaseAdmin.from('stores').update({ client_address_id: candidates[0].id }).eq('id', store.id);
+    if (updateErr) {
+      unmatched.push({ store_number: storeNumber, reason: updateErr.message });
+      continue;
+    }
+    matched.push({ store_number: storeNumber, store_id: store.id, client_address_id: candidates[0].id });
+  }
+
+  return { matched, unmatched };
+}
+
 // A client-admin can only create a store under their OWN client(s) --
 // never trust a client-supplied client_id blindly, same reasoning as
 // checkStoreAccess elsewhere. cin7_address_line1 is required (not just
@@ -146,4 +210,4 @@ async function createStore(req, input) {
   return data;
 }
 
-module.exports = { listManageableStores, updateStoreNumber, updateClientAddress, createStore };
+module.exports = { listManageableStores, updateStoreNumber, updateClientAddress, importAddressMatches, createStore };

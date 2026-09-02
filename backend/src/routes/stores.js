@@ -32,6 +32,14 @@ router.patch(
 );
 
 router.post(
+  '/import-addresses',
+  asyncHandler(async (req, res) => {
+    const result = await storesService.importAddressMatches(req, req.body?.client_id, req.body?.rows);
+    res.json(result);
+  })
+);
+
+router.post(
   '/',
   asyncHandler(async (req, res) => {
     const store = await storesService.createStore(req, req.body);
