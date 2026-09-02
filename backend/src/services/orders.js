@@ -27,6 +27,32 @@ function requireStaff(req) {
   }
 }
 
+// DD.MM.YY in NZ time regardless of what timezone the server itself
+// runs in (Render's default is UTC) -- pulled apart via formatToParts
+// rather than trusting a locale's own separator/ordering.
+function formatConfirmDate(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', day: '2-digit', month: '2-digit', year: '2-digit' }).formatToParts(
+    date
+  );
+  const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')}.${get('month')}.${get('year')}`;
+}
+
+// Auto-generates orders.reference at confirm time (not creation time --
+// a buyer building a cart shouldn't need the store's numbering decided
+// yet) as `{store_number} ({confirm date DD.MM.YY})`, e.g. store_number
+// "PR#346" -> "PR#346 (02.09.26)". Already flows through to Cin7 as
+// CustomerReference once set (see integrations/cin7/client.js). Only
+// fills a still-empty reference -- never overwrites one already set,
+// and leaves it alone (silently) if the store has no store_number yet,
+// since there's nothing sensible to generate.
+async function generateReferenceIfMissing(order) {
+  if (order.reference) return order.reference;
+  const { data: store, error } = await supabaseAdmin.from('stores').select('store_number').eq('id', order.store_id).maybeSingle();
+  if (error || !store?.store_number) return order.reference ?? null;
+  return `${store.store_number} (${formatConfirmDate(new Date())})`;
+}
+
 async function checkStoreAccess(supabaseUser, storeId) {
   const { data, error } = await supabaseUser.rpc('has_store_access', { target_store_id: storeId });
   if (error) throw new ApiError(500, 'Failed to check store access', error.message);
@@ -348,9 +374,11 @@ async function confirmOrder(req, orderId) {
   const canApprove = await checkCanApprove(req.supabaseUser, order.store_id);
   if (!canApprove) throw new ApiError(403, 'You do not have approval rights for this store');
 
+  const reference = await generateReferenceIfMissing(order);
+
   const { data: updated, error: updateErr } = await supabaseAdmin
     .from('orders')
-    .update({ status: 'confirmed', approved_by: req.user.id })
+    .update({ status: 'confirmed', approved_by: req.user.id, reference })
     .eq('id', orderId)
     .select()
     .single();
@@ -392,9 +420,11 @@ async function bulkConfirm(req) {
       continue;
     }
 
+    const reference = await generateReferenceIfMissing(order);
+
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from('orders')
-      .update({ status: 'confirmed', approved_by: req.user.id })
+      .update({ status: 'confirmed', approved_by: req.user.id, reference })
       .eq('id', order.id)
       .select()
       .single();

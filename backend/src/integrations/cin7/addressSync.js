@@ -33,17 +33,31 @@ async function syncClientAddresses(clientId) {
     synced_at: new Date().toISOString(),
   }));
 
-  // Full replace for this client -- Cin7 is the source of truth, and a
-  // small per-client address list makes delete-then-insert simple and
-  // correct (no risk of stale rows lingering after an address is
-  // removed in Cin7).
-  const { error: deleteErr } = await supabaseAdmin.from('client_addresses').delete().eq('client_id', clientId);
-  if (deleteErr) throw new Error(`Failed to clear old addresses: ${deleteErr.message}`);
+  // Upsert (not delete-then-insert) so a row's id stays STABLE across
+  // re-syncs -- stores.client_address_id (027) references this id
+  // directly, and a full replace would silently orphan every store's
+  // address assignment on the next sync.
+  if (rows.length > 0) {
+    const { error: upsertErr } = await supabaseAdmin.from('client_addresses').upsert(rows, { onConflict: 'client_id,cin7_address_id' });
+    if (upsertErr) throw new Error(`Failed to save addresses: ${upsertErr.message}`);
+  }
 
-  if (rows.length === 0) return { synced: 0 };
-
-  const { error: insertErr } = await supabaseAdmin.from('client_addresses').insert(rows);
-  if (insertErr) throw new Error(`Failed to save addresses: ${insertErr.message}`);
+  // Still prune anything no longer present in Cin7 -- diff in JS and
+  // delete by internal id (avoids building a raw filter string against
+  // cin7_address_id, which would need careful escaping). A pruned
+  // address's stores.client_address_id references get cleared
+  // automatically via ON DELETE SET NULL.
+  const currentCin7Ids = new Set(addresses.map((a) => String(a.ID)));
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from('client_addresses')
+    .select('id, cin7_address_id')
+    .eq('client_id', clientId);
+  if (existingErr) throw new Error(`Failed to check existing addresses: ${existingErr.message}`);
+  const staleIds = (existing || []).filter((r) => !currentCin7Ids.has(String(r.cin7_address_id))).map((r) => r.id);
+  if (staleIds.length > 0) {
+    const { error: deleteErr } = await supabaseAdmin.from('client_addresses').delete().in('id', staleIds);
+    if (deleteErr) throw new Error(`Failed to prune removed addresses: ${deleteErr.message}`);
+  }
 
   return { synced: rows.length };
 }

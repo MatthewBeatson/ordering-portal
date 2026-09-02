@@ -1,11 +1,13 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { storesApi, clientsApi, type ManageableStore } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Check, Plus } from 'lucide-react';
+import type { ClientAddress } from '@/lib/types';
 
 // Client-admins and Shonrei staff manage store reference numbers --
 // and now whole stores -- directly here instead of needing Supabase
@@ -96,6 +98,25 @@ function ClientStoreGroup({
     },
   });
 
+  // Which of the client's synced Cin7 addresses (014) a store ships to
+  // (027) -- Cin7 has no "store" concept, so this mapping is set here,
+  // portal-native. Reads go straight through Supabase + RLS (client-
+  // admin/staff already covered, same as everywhere else); only the
+  // write needs the backend.
+  const { data: clientAddresses } = useQuery({
+    queryKey: ['client-addresses', clientId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('client_addresses').select('*').eq('client_id', clientId).order('is_default', { ascending: false });
+      if (error) throw error;
+      return data as ClientAddress[];
+    },
+  });
+
+  const saveAddress = useMutation({
+    mutationFn: ({ id, clientAddressId }: { id: string; clientAddressId: string | null }) => storesApi.updateClientAddress(id, clientAddressId),
+    onSuccess: onChanged,
+  });
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -117,6 +138,7 @@ function ClientStoreGroup({
               <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
                 <th className="px-4 py-2 font-medium">Store</th>
                 <th className="px-2 py-2 font-medium">Store number</th>
+                <th className="px-2 py-2 font-medium">Ship-to address</th>
                 <th className="w-20 px-4 py-2"></th>
               </tr>
             </thead>
@@ -134,6 +156,22 @@ function ClientStoreGroup({
                         placeholder="e.g. PR#346"
                         className="h-8 max-w-[10rem]"
                       />
+                    </td>
+                    <td className="px-2 py-2">
+                      <select
+                        className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                        value={s.client_address_id ?? ''}
+                        disabled={saveAddress.isPending && saveAddress.variables?.id === s.id}
+                        onChange={(e) => saveAddress.mutate({ id: s.id, clientAddressId: e.target.value || null })}
+                      >
+                        <option value="">Use client default</option>
+                        {(clientAddresses ?? []).map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {[a.line1, a.city].filter(Boolean).join(', ')}
+                            {a.is_default ? ' (default)' : ''}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="px-4 py-2 text-right">
                       {savedId === s.id ? (
@@ -161,6 +199,7 @@ function ClientStoreGroup({
       )}
 
       {save.isError && <p className="text-sm text-[var(--danger)]">{(save.error as Error).message}</p>}
+      {saveAddress.isError && <p className="text-sm text-[var(--danger)]">{(saveAddress.error as Error).message}</p>}
 
       {showAddForm && (
         <AddStoreForm

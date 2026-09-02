@@ -14,7 +14,7 @@ export function useMyStores() {
   return useQuery({
     queryKey: ['my-stores', session?.user.id, ids.join(',')],
     queryFn: async () => {
-      const { data, error } = await supabase.from('stores').select('id, name, client_id, store_number').in('id', ids).order('name');
+      const { data, error } = await supabase.from('stores').select('id, name, client_id, store_number, client_address_id').in('id', ids).order('name');
       if (error) throw error;
       return data as Store[];
     },

@@ -42,6 +42,9 @@ export interface Store {
   name: string;
   client_id: string;
   store_number: string | null;
+  // Which of the client's synced Cin7 addresses this store ships to
+  // (027) -- null falls back to the client's default address.
+  client_address_id: string | null;
 }
 
 export interface Client {

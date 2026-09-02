@@ -136,6 +136,7 @@ export interface ManageableStore {
   name: string;
   store_number: string | null;
   client_id: string;
+  client_address_id: string | null;
   clients: { name: string } | null;
 }
 
@@ -155,6 +156,8 @@ export const storesApi = {
   listManageable: () => request<{ stores: ManageableStore[] }>('GET', '/stores'),
   updateStoreNumber: (id: string, storeNumber: string) =>
     request<ManageableStore>('PATCH', `/stores/${id}/store-number`, { store_number: storeNumber }),
+  updateClientAddress: (id: string, clientAddressId: string | null) =>
+    request<ManageableStore>('PATCH', `/stores/${id}/client-address`, { client_address_id: clientAddressId }),
   create: (input: CreateStoreInput) => request<ManageableStore>('POST', '/stores', input),
 };
 

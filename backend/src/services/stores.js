@@ -11,7 +11,7 @@ const { ApiError } = require('../lib/errors');
 async function listManageableStores(req) {
   const { isPortalAdmin, clientRoles } = req.roles;
 
-  let query = supabaseAdmin.from('stores').select('id, name, store_number, client_id, clients(name)').order('name');
+  let query = supabaseAdmin.from('stores').select('id, name, store_number, client_id, client_address_id, clients(name)').order('name');
 
   if (!isPortalAdmin) {
     const clientIds = clientRoles.map((r) => r.client_id);
@@ -49,6 +49,51 @@ async function updateStoreNumber(req, storeId, storeNumber) {
     .select('id, name, store_number, client_id')
     .single();
   if (error) throw new ApiError(500, 'Failed to update store number', error.message);
+  return data;
+}
+
+// Which of the client's synced Cin7 addresses (014) this store ships
+// to (027) -- same permission shape as updateStoreNumber above.
+// clientAddressId may be null (clears the assignment, falls back to
+// the client's default address).
+async function updateClientAddress(req, storeId, clientAddressId) {
+  const { isPortalAdmin, clientRoles } = req.roles;
+
+  const { data: store, error: storeErr } = await supabaseAdmin.from('stores').select('id, client_id').eq('id', storeId).maybeSingle();
+  if (storeErr) throw new ApiError(500, 'Failed to load store', storeErr.message);
+  if (!store) throw new ApiError(404, 'Store not found');
+
+  const isClientAdminOfThisStore = clientRoles.some((r) => r.client_id === store.client_id);
+  if (!isPortalAdmin && !isClientAdminOfThisStore) {
+    throw new ApiError(403, 'You do not have permission to edit this store');
+  }
+
+  if (clientAddressId !== null && typeof clientAddressId !== 'string') {
+    throw new ApiError(400, 'client_address_id must be a string or null');
+  }
+
+  // Guard against assigning an address that belongs to a different
+  // client -- a store-scoped permission check above isn't enough on
+  // its own to stop that.
+  if (clientAddressId) {
+    const { data: address, error: addressErr } = await supabaseAdmin
+      .from('client_addresses')
+      .select('id, client_id')
+      .eq('id', clientAddressId)
+      .maybeSingle();
+    if (addressErr) throw new ApiError(500, 'Failed to load address', addressErr.message);
+    if (!address || address.client_id !== store.client_id) {
+      throw new ApiError(400, 'That address does not belong to this store\'s client');
+    }
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('stores')
+    .update({ client_address_id: clientAddressId })
+    .eq('id', storeId)
+    .select('id, name, store_number, client_id, client_address_id')
+    .single();
+  if (error) throw new ApiError(500, 'Failed to update store address', error.message);
   return data;
 }
 
@@ -101,4 +146,4 @@ async function createStore(req, input) {
   return data;
 }
 
-module.exports = { listManageableStores, updateStoreNumber, createStore };
+module.exports = { listManageableStores, updateStoreNumber, updateClientAddress, createStore };

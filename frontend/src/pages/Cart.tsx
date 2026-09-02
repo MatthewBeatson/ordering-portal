@@ -74,7 +74,12 @@ export default function Cart() {
     },
     enabled: !!currentStore,
   });
-  const defaultAddress = addresses?.find((a) => a.is_default) ?? addresses?.[0];
+  // A store's own assigned address (027, set in Account) wins if
+  // present -- Cin7 has no "store" concept, so this is the only way an
+  // order can ship somewhere other than the client's default. Falls
+  // back to the client's default address, same as before 027.
+  const assignedAddress = currentStore?.client_address_id ? addresses?.find((a) => a.id === currentStore.client_address_id) : undefined;
+  const defaultAddress = assignedAddress ?? addresses?.find((a) => a.is_default) ?? addresses?.[0];
   const alternateAddresses = (addresses ?? []).filter((a) => a.id !== defaultAddress?.id);
 
   const submit = useMutation({
@@ -239,12 +244,10 @@ export default function Cart() {
               .filter(Boolean)
               .join(', ')}
           </p>
-          {alternateAddresses.length > 0 && (
-            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-              {alternateAddresses.length} other address{alternateAddresses.length === 1 ? '' : 'es'} on file for this client — picking a
-              different one per order isn't available yet.
-            </p>
-          )}
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            {assignedAddress ? "This store's assigned address (set in Account)." : "This client's default address."}
+            {alternateAddresses.length > 0 && ' Picking a different one per order isn\'t available yet.'}
+          </p>
         </Card>
       )}
 
