@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase, productImageUrl } from '@/lib/supabase';
-import { productsApi, productTaxonomyApi, clientProductAttributesApi, type TaxonomyRow } from '@/lib/api';
+import { productsApi, productTaxonomyApi, clientProductAttributesApi, clientProductSkusApi, type TaxonomyRow } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import type {
   Client,
   ClientProductAttributeOverride,
+  ClientProductSku,
   DisplaySystem,
   Product,
   ProductColour,
@@ -112,6 +113,21 @@ export default function ProductCuration() {
     return map;
   }, [attributeOverrides]);
 
+  // Client SKU (010) -- a client's own reference code for a shared
+  // product. Same per-(client, product) shape as the attribute
+  // overrides above, but its own table -- lives in the same
+  // per-client editor for a single place staff manage this.
+  const { data: clientSkus } = useQuery({
+    queryKey: ['client-product-skus', selectedClientId],
+    queryFn: () => clientProductSkusApi.list(selectedClientId!),
+    enabled: !!selectedClientId,
+  });
+  const clientSkuByProduct = React.useMemo(() => {
+    const map = new Map<string, ClientProductSku>();
+    for (const row of clientSkus ?? []) map.set(row.product_id, row);
+    return map;
+  }, [clientSkus]);
+
   const {
     data: page_,
     isLoading: productsLoading,
@@ -186,6 +202,19 @@ export default function ProductCuration() {
   const clearOverride = useMutation({
     mutationFn: (productId: string) => clientProductAttributesApi.remove(selectedClientId!, productId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-product-attributes', selectedClientId] }),
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  const saveClientSku = useMutation({
+    mutationFn: ({ productId, clientSku }: { productId: string; clientSku: string }) =>
+      clientProductSkusApi.upsert(selectedClientId!, productId, clientSku),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-product-skus', selectedClientId] }),
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  const clearClientSku = useMutation({
+    mutationFn: (productId: string) => clientProductSkusApi.remove(selectedClientId!, productId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-product-skus', selectedClientId] }),
     onError: (err: Error) => setActionError(err.message),
   });
 
@@ -457,6 +486,11 @@ export default function ProductCuration() {
                               clearing={clearOverride.isPending && clearOverride.variables === p.id}
                               onSave={(input) => saveOverride.mutate({ productId: p.id, input })}
                               onClear={() => clearOverride.mutate(p.id)}
+                              clientSku={clientSkuByProduct.get(p.id)?.client_sku ?? ''}
+                              savingSku={saveClientSku.isPending && saveClientSku.variables?.productId === p.id}
+                              clearingSku={clearClientSku.isPending && clearClientSku.variables === p.id}
+                              onSaveSku={(clientSku) => saveClientSku.mutate({ productId: p.id, clientSku })}
+                              onClearSku={() => clearClientSku.mutate(p.id)}
                             />
                           </td>
                         </tr>
@@ -550,6 +584,11 @@ function AttributesEditor({
   clearing,
   onSave,
   onClear,
+  clientSku,
+  savingSku,
+  clearingSku,
+  onSaveSku,
+  onClearSku,
 }: {
   product: ProductRow;
   override: ClientProductAttributeOverride | undefined;
@@ -560,11 +599,17 @@ function AttributesEditor({
   clearing: boolean;
   onSave: (input: { jewellery_count: number | null; product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null }) => void;
   onClear: () => void;
+  clientSku: string;
+  savingSku: boolean;
+  clearingSku: boolean;
+  onSaveSku: (clientSku: string) => void;
+  onClearSku: () => void;
 }) {
   const [jewelleryCount, setJewelleryCount] = React.useState(override?.jewellery_count?.toString() ?? '');
   const [productTypeId, setProductTypeId] = React.useState(override?.product_type_id ?? '');
   const [jewelleryTypeId, setJewelleryTypeId] = React.useState(override?.jewellery_type_id ?? '');
   const [colourId, setColourId] = React.useState(override?.colour_id ?? '');
+  const [skuText, setSkuText] = React.useState(clientSku);
 
   React.useEffect(() => {
     setJewelleryCount(override?.jewellery_count?.toString() ?? '');
@@ -573,11 +618,39 @@ function AttributesEditor({
     setColourId(override?.colour_id ?? '');
   }, [override]);
 
+  React.useEffect(() => setSkuText(clientSku), [clientSku]);
+
   const selectClass =
     'h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]';
 
   return (
     <div className="flex flex-wrap items-end gap-4">
+      <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
+        Client SKU
+        <span className="text-[10px]">This client's own code -- no global equivalent</span>
+        <div className="flex items-center gap-1">
+          <Input
+            value={skuText}
+            onChange={(e) => setSkuText(e.target.value)}
+            placeholder="e.g. PR#346-A"
+            className="h-8 w-32"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={savingSku || !skuText.trim() || skuText.trim() === clientSku}
+            onClick={() => onSaveSku(skuText.trim())}
+          >
+            {savingSku ? <Spinner className="h-3.5 w-3.5" /> : 'Save'}
+          </Button>
+          {clientSku && (
+            <Button size="sm" variant="ghost" disabled={clearingSku} onClick={onClearSku}>
+              {clearingSku ? <Spinner className="h-3.5 w-3.5" /> : 'Clear'}
+            </Button>
+          )}
+        </div>
+      </label>
+
       <label className="flex flex-col gap-1 text-xs text-[var(--muted-foreground)]">
         Product type override
         <span className="text-[10px]">Global: {product.product_types?.name ?? '—'}</span>

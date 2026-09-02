@@ -189,7 +189,11 @@ export default function Cart() {
                         {showImages && (
                           <td className="px-4 py-2">
                             {thumb ? (
-                              <img src={thumb} alt={line.description ?? line.sku} className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`} />
+                              <img
+                                src={thumb}
+                                alt={line.description ?? line.sku}
+                                className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)] object-contain`}
+                              />
                             ) : (
                               <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
                             )}

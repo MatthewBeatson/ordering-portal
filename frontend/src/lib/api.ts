@@ -193,6 +193,14 @@ export interface ClientProductAttributeOverrideInput {
   colour_id: string | null;
 }
 
+export const clientProductSkusApi = {
+  list: (clientId: string) =>
+    request<{ rows: import('./types').ClientProductSku[] }>('GET', `/client-product-skus/${clientId}`).then((r) => r.rows),
+  upsert: (clientId: string, productId: string, clientSku: string) =>
+    request<import('./types').ClientProductSku>('PATCH', `/client-product-skus/${clientId}/${productId}`, { client_sku: clientSku }),
+  remove: (clientId: string, productId: string) => request<void>('DELETE', `/client-product-skus/${clientId}/${productId}`),
+};
+
 export const clientProductAttributesApi = {
   list: (clientId: string) =>
     request<{ rows: import('./types').ClientProductAttributeOverride[] }>('GET', `/client-product-attributes/${clientId}`).then(

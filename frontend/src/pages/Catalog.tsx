@@ -351,7 +351,7 @@ export default function Catalog() {
                                 <img
                                   src={productImageUrl(thumb.storage_path) ?? undefined}
                                   alt={thumb.alt_text ?? p.name}
-                                  className={`${IMAGE_SIZE_CLASS[imageSize]} rounded object-cover`}
+                                  className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)] object-contain`}
                                 />
                               ) : (
                                 <div className={`${IMAGE_SIZE_CLASS[imageSize]} rounded bg-[var(--muted)]`} />
