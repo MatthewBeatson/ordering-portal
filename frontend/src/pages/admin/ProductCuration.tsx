@@ -1,7 +1,15 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase, productImageUrl } from '@/lib/supabase';
-import { productsApi, productTaxonomyApi, clientProductAttributesApi, clientProductSkusApi, type TaxonomyRow } from '@/lib/api';
+import { useActiveClient } from '@/lib/ActiveClientContext';
+import {
+  productsApi,
+  productTaxonomyApi,
+  productDisplaySystemsApi,
+  clientProductAttributesApi,
+  clientProductSkusApi,
+  type TaxonomyRow,
+} from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,7 +32,8 @@ type ProductRow = Product & {
   product_types: Pick<ProductType, 'id' | 'name'> | null;
   product_jewellery_types: Pick<ProductJewelleryType, 'id' | 'name'> | null;
   product_colours: Pick<ProductColour, 'id' | 'name'> | null;
-  display_systems: Pick<DisplaySystem, 'id' | 'name'> | null;
+  // Many-to-many (028) -- a product can belong to more than one.
+  display_systems: Pick<DisplaySystem, 'id' | 'name'>[];
   product_images: Pick<ProductImage, 'id' | 'storage_path' | 'display_order'>[];
 };
 
@@ -81,6 +90,9 @@ export default function ProductCuration() {
   const [bulkColourId, setBulkColourId] = React.useState('');
   const [bulkCountEnabled, setBulkCountEnabled] = React.useState(false);
   const [bulkCountText, setBulkCountText] = React.useState('');
+  // Many-to-many (028) -- add/remove, not "set", so this is a separate
+  // control from the 4 above rather than a 5th field in the same panel.
+  const [bulkDisplaySystemId, setBulkDisplaySystemId] = React.useState('');
   const [page, setPage] = React.useState(0);
   const [rows, setRows] = React.useState<ProductRow[]>([]);
   const [hasMore, setHasMore] = React.useState(false);
@@ -103,10 +115,13 @@ export default function ProductCuration() {
       return data as Client[];
     },
   });
-  const [selectedClientId, setSelectedClientId] = React.useState<string | null>(null);
+  // Shared across the app (Catalog/Cart's store selection sets this
+  // too) so switching context on one screen carries over here instead
+  // of resetting -- see lib/ActiveClientContext.tsx.
+  const { activeClientId: selectedClientId, setActiveClientId: setSelectedClientId } = useActiveClient();
   React.useEffect(() => {
     if (!selectedClientId && clients && clients.length > 0) setSelectedClientId(clients[0].id);
-  }, [clients, selectedClientId]);
+  }, [selectedClientId, clients, setSelectedClientId]);
 
   // Reset pagination whenever the query's shape changes -- search term,
   // portal filter, or which client's curation the filter is scoped to.
@@ -134,6 +149,14 @@ export default function ProductCuration() {
     queryFn: () => productTaxonomyApi.list('jewellery-types'),
   });
   const { data: taxonomyColours } = useQuery({ queryKey: ['product-taxonomy', 'colours'], queryFn: () => productTaxonomyApi.list('colours') });
+  // Display systems are portal-native + many-to-many (028) -- no
+  // per-client override exists for these (unlike the three above), so
+  // this list is only used for the main table's multi-select editor
+  // and the bulk add/remove panel, not AttributesEditor.
+  const { data: taxonomyDisplaySystems } = useQuery({
+    queryKey: ['product-taxonomy', 'display-systems'],
+    queryFn: () => productTaxonomyApi.list('display-systems'),
+  });
 
   // Per-client overrides (024) for the currently-selected client --
   // jewellery_count, plus the rarely-used product_type/jewellery_type/
@@ -189,7 +212,7 @@ export default function ProductCuration() {
       let query = supabase
         .from('products')
         .select(
-          '*, product_types(id, name), product_jewellery_types(id, name), product_colours(id, name), display_systems(id, name), product_images(id, storage_path, display_order)'
+          '*, product_types(id, name), product_jewellery_types(id, name), product_colours(id, name), product_display_systems(display_systems(id, name)), product_images(id, storage_path, display_order)'
         )
         .order('name')
         .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
@@ -207,7 +230,13 @@ export default function ProductCuration() {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data as unknown as ProductRow[];
+      // Flatten the pivot join (product_display_systems[].display_systems)
+      // into a plain display_systems array, same shape everywhere else
+      // in the app reads it.
+      return (data ?? []).map((row) => {
+        const r = row as unknown as Omit<ProductRow, 'display_systems'> & { product_display_systems: { display_systems: Pick<DisplaySystem, 'id' | 'name'> }[] };
+        return { ...r, display_systems: r.product_display_systems.map((x) => x.display_systems) } as ProductRow;
+      });
     },
     // Wait for portalProductIds before running an in_portal/not_in_portal
     // query keyed off it -- otherwise the first render would fire the
@@ -366,6 +395,36 @@ export default function ProductCuration() {
     onSuccess: (_result, { productId, value }) => {
       setRows((prev) => prev.map((p) => (p.id === productId ? { ...p, jewellery_count: value } : p)));
     },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  // Many-to-many (028) -- full replace for one product, driven by the
+  // inline multi-select editor in the main table.
+  const setDisplaySystems = useMutation({
+    mutationFn: ({ productId, displaySystemIds }: { productId: string; displaySystemIds: string[] }) =>
+      productDisplaySystemsApi.setForProduct(productId, displaySystemIds),
+    onSuccess: (_result, { productId, displaySystemIds }) => {
+      const chosen = displaySystemIds
+        .map((id) => (taxonomyDisplaySystems ?? []).find((t) => t.id === id))
+        .filter((t): t is TaxonomyRow => !!t)
+        .map((t) => ({ id: t.id, name: t.name }));
+      setRows((prev) => prev.map((p) => (p.id === productId ? { ...p, display_systems: chosen } : p)));
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  // Bulk ADD/REMOVE -- union/subtract rather than replace, so a bulk
+  // action never disturbs whatever else a selected product already
+  // belongs to. Refetches rather than patching local state (many rows,
+  // simpler to just re-pull).
+  const bulkAddDisplaySystem = useMutation({
+    mutationFn: (displaySystemId: string) => productDisplaySystemsApi.bulkAdd([...selected], [displaySystemId]),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-products-search'] }),
+    onError: (err: Error) => setActionError(err.message),
+  });
+  const bulkRemoveDisplaySystem = useMutation({
+    mutationFn: (displaySystemId: string) => productDisplaySystemsApi.bulkRemove([...selected], [displaySystemId]),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-products-search'] }),
     onError: (err: Error) => setActionError(err.message),
   });
 
@@ -588,6 +647,42 @@ export default function ProductCuration() {
         </Card>
       )}
 
+      {selected.size > 0 && (
+        <Card className="flex flex-wrap items-end gap-3 p-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Bulk display systems</span>
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              Add or remove one system at a time -- adding doesn't disturb whatever else these {selected.size} already belong to.
+            </span>
+          </div>
+          <TaxonomySelect value={bulkDisplaySystemId || null} options={taxonomyDisplaySystems ?? []} onChange={setBulkDisplaySystemId} />
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkDisplaySystemId || bulkAddDisplaySystem.isPending}
+            onClick={() => {
+              const name = taxonomyDisplaySystems?.find((t) => t.id === bulkDisplaySystemId)?.name ?? '';
+              const ok = window.confirm(`Add "${name}" to ${selected.size} product${selected.size === 1 ? '' : 's'}? Global -- for every client.`);
+              if (ok) bulkAddDisplaySystem.mutate(bulkDisplaySystemId);
+            }}
+          >
+            {bulkAddDisplaySystem.isPending ? <Spinner className="h-3.5 w-3.5" /> : `Add to ${selected.size}`}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={!bulkDisplaySystemId || bulkRemoveDisplaySystem.isPending}
+            onClick={() => {
+              const name = taxonomyDisplaySystems?.find((t) => t.id === bulkDisplaySystemId)?.name ?? '';
+              const ok = window.confirm(`Remove "${name}" from ${selected.size} product${selected.size === 1 ? '' : 's'}? Global -- for every client.`);
+              if (ok) bulkRemoveDisplaySystem.mutate(bulkDisplaySystemId);
+            }}
+          >
+            {bulkRemoveDisplaySystem.isPending ? <Spinner className="h-3.5 w-3.5" /> : `Remove from ${selected.size}`}
+          </Button>
+        </Card>
+      )}
+
       {productsLoading && page === 0 ? (
         <div className="flex h-64 items-center justify-center">
           <Spinner className="h-6 w-6" />
@@ -645,7 +740,13 @@ export default function ProductCuration() {
                         <td className="px-2 py-2 font-mono text-xs">{p.sku}</td>
                         <td className="px-2 py-2">{p.name}</td>
                         <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.category ?? '—'}</td>
-                        <td className="px-2 py-2 text-[var(--muted-foreground)]">{p.display_systems?.name ?? '—'}</td>
+                        <td className="px-2 py-2">
+                          <DisplaySystemsMultiSelect
+                            value={p.display_systems}
+                            options={taxonomyDisplaySystems ?? []}
+                            onChange={(ids) => setDisplaySystems.mutate({ productId: p.id, displaySystemIds: ids })}
+                          />
+                        </td>
                         <td className="px-2 py-2">
                           <TaxonomySelect
                             value={p.product_type_id}
@@ -746,6 +847,58 @@ export default function ProductCuration() {
 // 023) -- plain <select>, same style as the "Curating portal for"
 // dropdown above. A blank option always exists (unclassified is valid
 // -- not every product needs every facet set).
+// Multi-select for a product's display system(s) (028 -- many-to-many,
+// unlike every other taxonomy facet). Removable chips for what it
+// currently belongs to, plus a "+ Add" dropdown listing everything it
+// doesn't. Emits the FULL resulting id list on every change (add or
+// remove) -- the caller does a full replace, not an incremental toggle.
+function DisplaySystemsMultiSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: { id: string; name: string }[];
+  options: TaxonomyRow[];
+  onChange: (ids: string[]) => void;
+}) {
+  const selectedIds = new Set(value.map((v) => v.id));
+  const available = options.filter((o) => !selectedIds.has(o.id));
+
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {value.map((v) => (
+        <Badge key={v.id} tone="muted" className="gap-1 pr-1">
+          {v.name}
+          <button
+            type="button"
+            onClick={() => onChange(value.filter((x) => x.id !== v.id).map((x) => x.id))}
+            className="rounded-full hover:text-[var(--danger)]"
+            title={`Remove ${v.name}`}
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </Badge>
+      ))}
+      {available.length > 0 && (
+        <select
+          className="h-7 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-1 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          value=""
+          onChange={(e) => {
+            if (e.target.value) onChange([...value.map((v) => v.id), e.target.value]);
+          }}
+        >
+          <option value="">+ Add</option>
+          {available.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
 function TaxonomySelect({
   value,
   options,

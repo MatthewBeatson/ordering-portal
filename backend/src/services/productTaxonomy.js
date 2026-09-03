@@ -1,17 +1,17 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
 
-// Staff CRUD for the three portal-native taxonomy tables (023) --
-// product_type, jewellery_type, colour. One generic service
-// parameterized over a whitelisted "kind" rather than three near-
-// identical files, since all three tables share the exact same shape
-// (id, name, display_order). display_systems is deliberately NOT
-// included here -- it stays Cin7 Category-sourced (see productSync.js)
-// and has no staff-write path.
+// Staff CRUD for the four portal-native taxonomy tables -- product_type/
+// jewellery_type/colour (023) and display_systems (028, formerly Cin7
+// Category-sourced, now portal-native + many-to-many via
+// product_display_systems). One generic service parameterized over a
+// whitelisted "kind" rather than four near-identical files, since all
+// four tables share the exact same shape (id, name, display_order).
 const KIND_TABLE = {
   types: 'product_types',
   'jewellery-types': 'product_jewellery_types',
   colours: 'product_colours',
+  'display-systems': 'display_systems',
 };
 
 function requireStaff(req) {

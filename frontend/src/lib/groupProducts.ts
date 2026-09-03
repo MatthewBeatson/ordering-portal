@@ -35,12 +35,37 @@ function bucket<T>(rows: T[], getRef: (row: T) => GroupRef) {
   return [...map.entries()].sort((a, b) => a[1].order - b[1].order || a[1].label.localeCompare(b[1].label));
 }
 
+// Like bucket(), but a row can belong to several groups at once (028 --
+// a product can be in more than one display system) -- a row with N
+// systems appears in N groups; a row with zero falls into '__none'
+// once, same convention as every other empty-facet case.
+function bucketMulti<T>(rows: T[], getRefs: (row: T) => GroupRef[]) {
+  const map = new Map<string, { label: string; order: number; rows: T[] }>();
+  for (const row of rows) {
+    const refs = getRefs(row);
+    if (refs.length === 0) {
+      if (!map.has('__none')) map.set('__none', { label: 'Ungrouped', order: 9999, rows: [] });
+      map.get('__none')!.rows.push(row);
+      continue;
+    }
+    for (const ref of refs) {
+      const key = ref?.id ?? '__none';
+      if (!map.has(key)) {
+        map.set(key, { label: ref?.name ?? 'Ungrouped', order: ref?.display_order ?? 9999, rows: [] });
+      }
+      map.get(key)!.rows.push(row);
+    }
+  }
+  return [...map.entries()].sort((a, b) => a[1].order - b[1].order || a[1].label.localeCompare(b[1].label));
+}
+
 // Two-level grouping for "by display system": display system -> product
-// type. For "by product type": a single level, product type only.
+// type (a row with multiple display systems appears once per system it
+// belongs to). For "by product type": a single level, product type only.
 export function groupProducts<T>(
   rows: T[],
   mode: GroupMode,
-  getDisplaySystem: (row: T) => GroupRef,
+  getDisplaySystems: (row: T) => GroupRef[],
   getProductType: (row: T) => GroupRef
 ): Group<T>[] {
   if (mode === 'type') {
@@ -52,7 +77,7 @@ export function groupProducts<T>(
     }));
   }
 
-  return bucket(rows, getDisplaySystem).map(([key, g]) => ({
+  return bucketMulti(rows, getDisplaySystems).map(([key, g]) => ({
     key,
     label: g.label,
     order: g.order,

@@ -4,12 +4,15 @@ import { supabase } from './supabase';
 import { parseTierNumber } from './pricing';
 import type { Client, ClientProductSku, DisplaySystem, Product, ProductColour, ProductJewelleryType, ProductType } from './types';
 
+type DisplaySystemRef = Pick<DisplaySystem, 'id' | 'name' | 'display_order'>;
+
 export type ProductRow = Product & {
   product_images: { storage_path: string; display_order: number; alt_text: string | null }[];
   product_types: Pick<ProductType, 'id' | 'name' | 'display_order'> | null;
   product_jewellery_types: Pick<ProductJewelleryType, 'id' | 'name' | 'display_order'> | null;
   product_colours: Pick<ProductColour, 'id' | 'name' | 'display_order'> | null;
-  display_systems: Pick<DisplaySystem, 'id' | 'name' | 'display_order'> | null;
+  // Many-to-many (028) -- a product can belong to more than one.
+  display_systems: DisplaySystemRef[];
 };
 
 type OverrideRow = {
@@ -97,13 +100,14 @@ export function useClientCatalog(clientId: string | undefined) {
       const { data, error } = await supabase
         .from('client_portal_products')
         .select(
-          'product_id, products(*, product_images(storage_path, display_order, alt_text), product_types(id, name, display_order), product_jewellery_types(id, name, display_order), product_colours(id, name, display_order), display_systems(id, name, display_order))'
+          'product_id, products(*, product_images(storage_path, display_order, alt_text), product_types(id, name, display_order), product_jewellery_types(id, name, display_order), product_colours(id, name, display_order), product_display_systems(display_systems(id, name, display_order)))'
         )
         .eq('client_id', clientId!);
       if (error) throw error;
       return (data ?? [])
-        .map((row) => row.products as unknown as ProductRow)
-        .filter((p): p is ProductRow => !!p && p.is_active)
+        .map((row) => row.products as unknown as (Omit<ProductRow, 'display_systems'> & { product_display_systems: { display_systems: DisplaySystemRef }[] }) | null)
+        .filter((p): p is NonNullable<typeof p> => !!p && p.is_active)
+        .map((p) => ({ ...p, display_systems: p.product_display_systems.map((r) => r.display_systems) }) as ProductRow)
         .sort((a, b) => a.name.localeCompare(b.name));
     },
     enabled: !!clientId,

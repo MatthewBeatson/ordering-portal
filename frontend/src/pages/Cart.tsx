@@ -40,7 +40,7 @@ export default function Cart() {
   const { bySku } = useResolvedLines(cart.lines.map((l) => l.sku), currentStore?.client_id);
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
-    () => groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems, (l) => bySku.get(l.sku)?.product_types),
+    () => groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems ?? [], (l) => bySku.get(l.sku)?.product_types),
     [cart.lines, groupMode, bySku]
   );
 

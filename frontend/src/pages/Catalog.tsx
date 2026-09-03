@@ -2,6 +2,7 @@ import * as React from 'react';
 import { productImageUrl } from '@/lib/supabase';
 import { useCart } from '@/lib/CartContext';
 import { useAuth } from '@/lib/AuthContext';
+import { useActiveClient } from '@/lib/ActiveClientContext';
 import { useMyStores } from '@/lib/useStores';
 import { useClientCatalog, type ProductRow } from '@/lib/useClientCatalog';
 import { tierPrice } from '@/lib/pricing';
@@ -40,14 +41,54 @@ export default function Catalog() {
   const { imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
   const showImages = imageSize !== 'hide';
 
-  // Default to the user's only/first store once loaded.
+  // Two-way link with the shared "active client" (see
+  // lib/ActiveClientContext.tsx) -- store selection here sets it
+  // (unambiguous: a store belongs to exactly one client), and a client
+  // change made elsewhere (e.g. Product Curation) jumps this page to
+  // that client's first store, same confirm-before-clearing guard the
+  // manual store dropdown below already uses.
+  const { activeClientId, setActiveClientId } = useActiveClient();
+
+  // Default to the user's only/first store once loaded -- prefers a
+  // store matching an already-persisted active client (from a previous
+  // session/screen) over a blind alphabetically-first pick, so a fresh
+  // page load doesn't clobber context set elsewhere.
   React.useEffect(() => {
     if (!cart.storeId && stores && stores.length > 0) {
-      cart.setStore(stores[0].id);
+      const preferred = activeClientId ? stores.find((s) => s.client_id === activeClientId) : undefined;
+      cart.setStore((preferred ?? stores[0]).id);
     }
-  }, [stores, cart]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores]);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId) ?? null;
+
+  React.useEffect(() => {
+    if (currentStore?.client_id && currentStore.client_id !== activeClientId) {
+      setActiveClientId(currentStore.client_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStore?.client_id]);
+
+  React.useEffect(() => {
+    if (!activeClientId || !stores || stores.length === 0) return;
+    if (currentStore?.client_id === activeClientId) return; // already in sync
+    const targetStore = [...stores].filter((s) => s.client_id === activeClientId).sort((a, b) => a.name.localeCompare(b.name))[0];
+    if (!targetStore || targetStore.id === cart.storeId) return;
+
+    if (cart.lines.length > 0) {
+      const ok = window.confirm('Switching client will clear your current cart. Continue?');
+      if (!ok) {
+        // Don't leave activeClientId pointing somewhere this page never
+        // actually followed -- revert it back to the store still shown.
+        if (currentStore?.client_id) setActiveClientId(currentStore.client_id);
+        return;
+      }
+      cart.clear();
+    }
+    cart.setStore(targetStore.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeClientId, stores]);
   // tierNumber stays real (unaffected by showPricing) -- it's what
   // computes the unit_price actually attached to a cart line, and that
   // value still has to flow through to Cin7 for invoicing regardless
@@ -57,7 +98,11 @@ export default function Catalog() {
 
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
-  const [selectedDisplaySystemId, setSelectedDisplaySystemId] = React.useState<string | null>(null);
+  // Multi-select (028 -- a product can belong to more than one display
+  // system), same shape/pattern as the three FACETS below: OR-matched,
+  // a product matches if it has ANY of the selected systems among its
+  // (possibly several) memberships.
+  const [selectedDisplaySystemIds, setSelectedDisplaySystemIds] = React.useState<Set<string>>(new Set());
   const [facetSelections, setFacetSelections] = React.useState<Record<FacetKey, Set<string>>>({
     productType: new Set(),
     jewelleryType: new Set(),
@@ -65,6 +110,7 @@ export default function Catalog() {
   });
   const [quantities, setQuantities] = React.useState<Record<string, number>>({});
   const [justAdded, setJustAdded] = React.useState<string | null>(null);
+  const selectedDisplaySystemIdsKey = [...selectedDisplaySystemIds].sort().join(',');
 
   // Reset all three facets whenever the display-system selection
   // changes -- the whole product pool shifts, so a stale facet
@@ -72,7 +118,17 @@ export default function Catalog() {
   // reset each other, only this higher-level change does.
   React.useEffect(() => {
     setFacetSelections({ productType: new Set(), jewelleryType: new Set(), colour: new Set() });
-  }, [selectedDisplaySystemId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDisplaySystemIdsKey]);
+
+  function toggleDisplaySystem(id: string) {
+    setSelectedDisplaySystemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const searchAndDisplayFiltered = React.useMemo(() => {
     if (!products) return [];
@@ -89,18 +145,19 @@ export default function Catalog() {
           p.product_types?.name ?? '',
           p.product_jewellery_types?.name ?? '',
           p.product_colours?.name ?? '',
-          p.display_systems?.name ?? '',
+          ...p.display_systems.map((ds) => ds.name),
         ]
           .join(' ')
           .toLowerCase();
         return haystack.includes(q);
       });
     }
-    if (groupMode === 'display' && selectedDisplaySystemId) {
-      rows = rows.filter((p) => p.display_system_id === selectedDisplaySystemId);
+    if (groupMode === 'display' && selectedDisplaySystemIds.size > 0) {
+      rows = rows.filter((p) => p.display_systems.some((ds) => selectedDisplaySystemIds.has(ds.id)));
     }
     return rows;
-  }, [products, search, clientSkuByProduct, groupMode, selectedDisplaySystemId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, search, clientSkuByProduct, groupMode, selectedDisplaySystemIdsKey]);
 
   // A row matches if it satisfies every active facet except the one
   // named in `excludeKey` (pass null to apply all three, used for the
@@ -128,7 +185,7 @@ export default function Catalog() {
     if (!products) return [];
     const map = new Map<string, DisplaySystem>();
     for (const p of products) {
-      if (p.display_systems) map.set(p.display_systems.id, p.display_systems as DisplaySystem);
+      for (const ds of p.display_systems) map.set(ds.id, ds as DisplaySystem);
     }
     return [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
   }, [products]);
@@ -261,17 +318,17 @@ export default function Catalog() {
 
           {groupMode === 'display' && displaySystemChips.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
-              <button onClick={() => setSelectedDisplaySystemId(null)}>
-                <Badge tone={selectedDisplaySystemId === null ? 'accent' : 'muted'}>All</Badge>
-              </button>
+              {/* Multi-select (028) -- a product can belong to more than
+                  one display system, so this is the same toggle-chips
+                  pattern as the FACETS below, not single-select. */}
               {displaySystemChips.map((ds) => (
-                <button key={ds.id} onClick={() => setSelectedDisplaySystemId(ds.id)}>
-                  <Badge tone={selectedDisplaySystemId === ds.id ? 'accent' : 'muted'}>{ds.name}</Badge>
+                <button key={ds.id} onClick={() => toggleDisplaySystem(ds.id)}>
+                  <Badge tone={selectedDisplaySystemIds.has(ds.id) ? 'accent' : 'muted'}>{ds.name}</Badge>
                 </button>
               ))}
-              {selectedDisplaySystemId !== null && (
+              {selectedDisplaySystemIds.size > 0 && (
                 <button
-                  onClick={() => setSelectedDisplaySystemId(null)}
+                  onClick={() => setSelectedDisplaySystemIds(new Set())}
                   className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
                 >
                   Clear

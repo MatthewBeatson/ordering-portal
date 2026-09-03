@@ -77,7 +77,7 @@ export default function OrderDetail() {
       groupProducts(
         order?.order_lines ?? [],
         groupMode,
-        (l) => bySku.get(l.sku)?.display_systems,
+        (l) => bySku.get(l.sku)?.display_systems ?? [],
         (l) => bySku.get(l.sku)?.product_types
       ),
     [order, groupMode, bySku]

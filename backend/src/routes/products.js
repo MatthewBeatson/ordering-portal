@@ -3,6 +3,7 @@ const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const { asyncHandler } = require('../lib/asyncHandler');
 const productsService = require('../services/products');
+const displaySystemsService = require('../services/productDisplaySystems');
 
 const router = Router();
 // Memory storage -- product photos are small, no need to touch disk.
@@ -56,6 +57,30 @@ router.post(
   '/bulk/update-taxonomy',
   asyncHandler(async (req, res) => {
     const result = await productsService.bulkUpdateTaxonomy(req, req.body?.product_ids, req.body);
+    res.json(result);
+  })
+);
+
+router.put(
+  '/:id/display-systems',
+  asyncHandler(async (req, res) => {
+    const result = await displaySystemsService.setForProduct(req, req.params.id, req.body?.display_system_ids);
+    res.json(result);
+  })
+);
+
+router.post(
+  '/bulk/add-display-systems',
+  asyncHandler(async (req, res) => {
+    const result = await displaySystemsService.bulkAdd(req, req.body?.product_ids, req.body?.display_system_ids);
+    res.json(result);
+  })
+);
+
+router.post(
+  '/bulk/remove-display-systems',
+  asyncHandler(async (req, res) => {
+    const result = await displaySystemsService.bulkRemove(req, req.body?.product_ids, req.body?.display_system_ids);
     res.json(result);
   })
 );

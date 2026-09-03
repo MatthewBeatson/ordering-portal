@@ -6,7 +6,8 @@ type Ref = { id: string; name: string; display_order: number } | null;
 
 export interface ResolvedLine {
   id: string;
-  display_systems: Ref;
+  // Many-to-many (028) -- a product can belong to more than one.
+  display_systems: Ref[];
   product_types: Ref;
 }
 
@@ -28,14 +29,15 @@ export function useResolvedLines(skus: string[], clientId: string | undefined) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('products')
-        .select('id, sku, display_systems(id, name, display_order), product_types(id, name, display_order)')
+        .select('id, sku, product_display_systems(display_systems(id, name, display_order)), product_types(id, name, display_order)')
         .in('sku', uniqueSkus);
       if (error) throw error;
-      const map = new Map<string, { id: string; display_systems: Ref; product_types: Ref }>();
+      const map = new Map<string, { id: string; display_systems: Ref[]; product_types: Ref }>();
       for (const row of data ?? []) {
+        const pds = (row.product_display_systems ?? []) as unknown as { display_systems: Ref }[];
         map.set(row.sku as string, {
           id: row.id as string,
-          display_systems: row.display_systems as unknown as Ref,
+          display_systems: pds.map((r) => r.display_systems),
           product_types: row.product_types as unknown as Ref,
         });
       }

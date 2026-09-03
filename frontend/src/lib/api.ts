@@ -135,6 +135,27 @@ export const productsApi = {
   ) => request<{ updated: number }>('POST', '/products/bulk/update-taxonomy', { product_ids: productIds, ...input }),
 };
 
+// Many-to-many (028) -- a product can belong to more than one display
+// system, unlike the single-value taxonomy fields above.
+export const productDisplaySystemsApi = {
+  // Full replace for one product.
+  setForProduct: (productId: string, displaySystemIds: string[]) =>
+    request<{ product_id: string; display_system_ids: string[] }>('PUT', `/products/${productId}/display-systems`, {
+      display_system_ids: displaySystemIds,
+    }),
+  // Bulk ADD (union) -- doesn't disturb whatever else a product already belongs to.
+  bulkAdd: (productIds: string[], displaySystemIds: string[]) =>
+    request<{ added: number }>('POST', '/products/bulk/add-display-systems', {
+      product_ids: productIds,
+      display_system_ids: displaySystemIds,
+    }),
+  bulkRemove: (productIds: string[], displaySystemIds: string[]) =>
+    request<{ ok: boolean }>('POST', '/products/bulk/remove-display-systems', {
+      product_ids: productIds,
+      display_system_ids: displaySystemIds,
+    }),
+};
+
 export interface ManageableStore {
   id: string;
   name: string;
@@ -181,7 +202,7 @@ export const clientsApi = {
     request<{ id: string; name: string; show_pricing: boolean }>('PATCH', `/clients/${id}/show-pricing`, { show_pricing: showPricing }),
 };
 
-export type TaxonomyKind = 'types' | 'jewellery-types' | 'colours';
+export type TaxonomyKind = 'types' | 'jewellery-types' | 'colours' | 'display-systems';
 
 export interface TaxonomyRow {
   id: string;

@@ -9,60 +9,26 @@
 // PriceTier1..10) are taken from a real GET /Product response captured
 // against the trial account during earlier testing, not guessed.
 //
-// Only one grouping/filter axis is still Cin7-sourced:
-//   - Category -> display_systems (cin7_category_value)
-//
-// product_type, jewellery_type ("what jewellery item the fixture
-// holds -- Ring, Earring, Pendant...", 018), and colour (017) were
-// previously synced from Cin7 Additional Attributes 1-3, but as of
-// 023_portal_native_taxonomy.sql these are portal-native: staff manage
-// them directly (name + display_order) via the admin taxonomy screen,
-// and set them per product there. This sync deliberately never touches
-// product_type_id/jewellery_type_id/colour_id -- omitting a key from
-// the upsert payload leaves whatever staff have set untouched, so
-// re-running a Cin7 sync can never silently overwrite portal-native
-// classification.
+// No grouping/filter axis is Cin7-sourced any more. Category used to
+// sync into display_systems, but as of 028_display_systems_many_to_many
+// that's portal-native too (product_display_systems, many-to-many) --
+// same reasoning as product_type/jewellery_type/colour (023): staff
+// manage the reference table (name + display_order) and assign it per
+// product directly in the portal. This sync deliberately never touches
+// product_type_id/jewellery_type_id/colour_id, jewellery_count, or a
+// product's display systems -- omitting a key from the upsert payload
+// leaves whatever staff have set untouched, so re-running a Cin7 sync
+// can never silently overwrite portal-native classification. The raw
+// `category` text column IS still synced (kept for reference/search --
+// see ProductCuration.tsx's "Category" column) -- only the FK-based
+// display_system_id/product_display_systems link has been retired.
 
 const { supabaseAdmin } = require('../../config/supabase');
 const cin7 = require('./client');
 
 const PAGE_SIZE = 250;
 
-// Resolve-or-create pattern, now only used for display_systems (the
-// one remaining Cin7-sourced reference table, keyed off
-// cin7_category_value). `name` is seeded from the raw Cin7 value but
-// is staff-editable afterward if it isn't already display-ready -- the
-// anchor column is what keeps the sync link stable across a rename.
-async function resolveReferenceId(table, anchorColumn, cin7Value, cache) {
-  if (!cin7Value) return null;
-  if (cache.has(cin7Value)) return cache.get(cin7Value);
-
-  const { data: existing, error: selectErr } = await supabaseAdmin.from(table).select('id').eq(anchorColumn, cin7Value).maybeSingle();
-  if (selectErr) {
-    console.error(`[cin7 productSync] failed to look up ${table} for "${cin7Value}":`, selectErr.message);
-    cache.set(cin7Value, null);
-    return null;
-  }
-  if (existing) {
-    cache.set(cin7Value, existing.id);
-    return existing.id;
-  }
-
-  const { data: created, error: insertErr } = await supabaseAdmin
-    .from(table)
-    .insert({ name: cin7Value, [anchorColumn]: cin7Value })
-    .select('id')
-    .single();
-  if (insertErr) {
-    console.error(`[cin7 productSync] failed to create ${table} for "${cin7Value}":`, insertErr.message);
-    cache.set(cin7Value, null);
-    return null;
-  }
-  cache.set(cin7Value, created.id);
-  return created.id;
-}
-
-function mapProduct(p, displaySystemId) {
+function mapProduct(p) {
   return {
     cin7_product_id: p.ID,
     sku: p.SKU,
@@ -70,10 +36,11 @@ function mapProduct(p, displaySystemId) {
     description: p.Description || p.ShortDescription || null,
     category: p.Category || null,
     brand: p.Brand || null,
-    display_system_id: displaySystemId,
-    // product_type_id/jewellery_type_id/colour_id deliberately omitted
-    // -- see the header comment. An omitted key leaves the existing DB
-    // value untouched on this upsert, rather than nulling it out.
+    // product_type_id/jewellery_type_id/colour_id/jewellery_count and
+    // display systems (a separate join table now) deliberately
+    // omitted -- see the header comment. An omitted key leaves the
+    // existing DB value untouched on this upsert, rather than nulling
+    // it out.
     price_tier_1: p.PriceTier1 ?? null,
     price_tier_2: p.PriceTier2 ?? null,
     price_tier_3: p.PriceTier3 ?? null,
@@ -96,7 +63,6 @@ async function syncProducts() {
     throw new Error('CIN7_ACCOUNT_ID / CIN7_APPLICATION_KEY are not configured');
   }
 
-  const displaySystemCache = new Map();
   let page = 1;
   let total = Infinity;
   let synced = 0;
@@ -112,8 +78,7 @@ async function syncProducts() {
     const products = res.body.Products ?? [];
 
     for (const p of products) {
-      const displaySystemId = await resolveReferenceId('display_systems', 'cin7_category_value', p.Category, displaySystemCache);
-      const row = mapProduct(p, displaySystemId);
+      const row = mapProduct(p);
 
       const { error } = await supabaseAdmin.from('products').upsert(row, { onConflict: 'cin7_product_id' });
       if (error) {

@@ -72,10 +72,12 @@ export interface ProductColour {
   display_order: number;
 }
 
+// Portal-native (028) -- cin7_category_value dropped, no longer Cin7
+// Category-sourced. A product can belong to more than one, via
+// product_display_systems.
 export interface DisplaySystem {
   id: string;
   name: string;
-  cin7_category_value: string | null;
   display_order: number;
 }
 
@@ -91,7 +93,8 @@ export interface Product {
   // Global default -- client_product_attributes.jewellery_count
   // overrides this per client when set. See useClientCatalog.ts.
   jewellery_count: number | null;
-  display_system_id: string | null;
+  // display_system_id was dropped (028) -- a product's display
+  // system(s) now live in product_display_systems (many-to-many).
   is_active: boolean;
   price_tier_1: number | null;
   price_tier_2: number | null;

@@ -7,12 +7,17 @@ import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import { Plus, Trash2 } from 'lucide-react';
 
-// Staff-managed CRUD for the three portal-native taxonomy tables (023)
-// -- product type, jewellery held, colour. This is what makes
-// display_order real: staff set it here to sequence e.g.
-// Plinth/Base -> Tray -> Insert, which Catalog/Cart/Order Detail's "By
-// display system" grouping sorts by.
+// Staff-managed CRUD for the four portal-native taxonomy tables --
+// product type/jewellery held/colour (023) and display system (028,
+// formerly Cin7 Category-sourced). This is what makes display_order
+// real: staff set it here to sequence e.g. Plinth/Base -> Tray ->
+// Insert, which Catalog/Cart/Order Detail's "By display system"
+// grouping sorts by. Display system is the one many-to-many facet --
+// a product can belong to more than one, assigned via the multi-select
+// on Product Curation's main table (not here -- this screen only
+// manages the reference list itself, same as the other three).
 const SECTIONS: { kind: TaxonomyKind; label: string; hint: string }[] = [
+  { kind: 'display-systems', label: 'Display system', hint: 'e.g. Ostendo Range -- a product can belong to more than one.' },
   { kind: 'types', label: 'Product type', hint: 'e.g. Base, Tray, Insert -- set display_order to control grouping sequence.' },
   { kind: 'jewellery-types', label: 'Jewellery held', hint: 'What jewellery item the fixture holds -- Ring, Earring, Pendant...' },
   { kind: 'colours', label: 'Colour', hint: 'e.g. Black, Navy, White.' },
