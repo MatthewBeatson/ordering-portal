@@ -68,6 +68,19 @@ export default function ProductCuration() {
   const [portalFilter, setPortalFilter] = React.useState<PortalFilter>('all');
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [expandedProductId, setExpandedProductId] = React.useState<string | null>(null);
+  // Bulk classification -- each field has its own enable checkbox so a
+  // staff member can choose to touch only some fields across the
+  // selection, same "one field at a time" contract as the per-product
+  // editors. Global (products.*), not per-client -- deliberately
+  // independent of selectedClientId/client-mistake concerns.
+  const [bulkTypeEnabled, setBulkTypeEnabled] = React.useState(false);
+  const [bulkTypeId, setBulkTypeId] = React.useState('');
+  const [bulkJewelleryTypeEnabled, setBulkJewelleryTypeEnabled] = React.useState(false);
+  const [bulkJewelleryTypeId, setBulkJewelleryTypeId] = React.useState('');
+  const [bulkColourEnabled, setBulkColourEnabled] = React.useState(false);
+  const [bulkColourId, setBulkColourId] = React.useState('');
+  const [bulkCountEnabled, setBulkCountEnabled] = React.useState(false);
+  const [bulkCountText, setBulkCountText] = React.useState('');
   const [page, setPage] = React.useState(0);
   const [rows, setRows] = React.useState<ProductRow[]>([]);
   const [hasMore, setHasMore] = React.useState(false);
@@ -249,6 +262,56 @@ export default function ProductCuration() {
     },
     onError: (err: Error) => setActionError(err.message),
   });
+
+  const bulkUpdateTaxonomy = useMutation({
+    mutationFn: (input: Parameters<typeof productsApi.bulkUpdateTaxonomy>[1]) => productsApi.bulkUpdateTaxonomy([...selected], input),
+    onSuccess: () => {
+      setSelected(new Set());
+      setBulkTypeEnabled(false);
+      setBulkTypeId('');
+      setBulkJewelleryTypeEnabled(false);
+      setBulkJewelleryTypeId('');
+      setBulkColourEnabled(false);
+      setBulkColourId('');
+      setBulkCountEnabled(false);
+      setBulkCountText('');
+      queryClient.invalidateQueries({ queryKey: ['admin-products-search'] });
+    },
+    onError: (err: Error) => setActionError(err.message),
+  });
+
+  // Builds a human-readable summary for the confirm dialog and only
+  // sends fields staff actually enabled. Explicitly warns this is
+  // GLOBAL -- easy to assume it's scoped to the currently-curated
+  // client, like everything else on this page, but product_type/
+  // jewellery_held/colour/jewellery_count are all global fields.
+  function applyBulkTaxonomy() {
+    const input: Parameters<typeof productsApi.bulkUpdateTaxonomy>[1] = {};
+    const changes: string[] = [];
+    if (bulkTypeEnabled) {
+      input.product_type_id = bulkTypeId || null;
+      changes.push(`Product type = ${taxonomyTypes?.find((t) => t.id === bulkTypeId)?.name ?? '(none)'}`);
+    }
+    if (bulkJewelleryTypeEnabled) {
+      input.jewellery_type_id = bulkJewelleryTypeId || null;
+      changes.push(`Jewellery held = ${taxonomyJewelleryTypes?.find((t) => t.id === bulkJewelleryTypeId)?.name ?? '(none)'}`);
+    }
+    if (bulkColourEnabled) {
+      input.colour_id = bulkColourId || null;
+      changes.push(`Colour = ${taxonomyColours?.find((t) => t.id === bulkColourId)?.name ?? '(none)'}`);
+    }
+    if (bulkCountEnabled) {
+      const count = bulkCountText.trim() === '' ? null : Math.max(0, Number(bulkCountText) || 0);
+      input.jewellery_count = count;
+      changes.push(`Jewellery count = ${count ?? '(none)'}`);
+    }
+    if (changes.length === 0) return;
+
+    const ok = window.confirm(
+      `Set ${changes.join(', ')} for ${selected.size} product${selected.size === 1 ? '' : 's'}?\n\nThis is global -- it changes these products for every client, not just ${selectedClient?.name ?? 'the one currently selected'}.`
+    );
+    if (ok) bulkUpdateTaxonomy.mutate(input);
+  }
 
   const saveOverride = useMutation({
     mutationFn: ({ productId, input }: { productId: string; input: Parameters<typeof clientProductAttributesApi.upsert>[2] }) =>
@@ -463,6 +526,68 @@ export default function ProductCuration() {
         </span>
       </div>
 
+      {selected.size > 0 && (
+        <Card className="flex flex-wrap items-end gap-4 p-3">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              Bulk edit {selected.size} selected
+            </span>
+            <span className="text-[10px] text-[var(--muted-foreground)]">Global -- applies for every client, not just {selectedClient?.name ?? 'the one selected above'}</span>
+          </div>
+
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={bulkTypeEnabled} onChange={(e) => setBulkTypeEnabled(e.target.checked)} />
+            Product type
+            <TaxonomySelect value={bulkTypeId || null} options={taxonomyTypes ?? []} onChange={setBulkTypeId} disabled={!bulkTypeEnabled} />
+          </label>
+
+          <label className="flex items-center gap-1.5 text-xs">
+            <input
+              type="checkbox"
+              checked={bulkJewelleryTypeEnabled}
+              onChange={(e) => setBulkJewelleryTypeEnabled(e.target.checked)}
+            />
+            Jewellery held
+            <TaxonomySelect
+              value={bulkJewelleryTypeId || null}
+              options={taxonomyJewelleryTypes ?? []}
+              onChange={setBulkJewelleryTypeId}
+              disabled={!bulkJewelleryTypeEnabled}
+            />
+          </label>
+
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={bulkColourEnabled} onChange={(e) => setBulkColourEnabled(e.target.checked)} />
+            Colour
+            <TaxonomySelect value={bulkColourId || null} options={taxonomyColours ?? []} onChange={setBulkColourId} disabled={!bulkColourEnabled} />
+          </label>
+
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={bulkCountEnabled} onChange={(e) => setBulkCountEnabled(e.target.checked)} />
+            Jewellery count
+            <Input
+              type="number"
+              min={0}
+              value={bulkCountText}
+              onChange={(e) => setBulkCountText(e.target.value)}
+              disabled={!bulkCountEnabled}
+              className="h-8 w-20 px-2 text-xs disabled:opacity-50"
+            />
+          </label>
+
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={
+              bulkUpdateTaxonomy.isPending || !(bulkTypeEnabled || bulkJewelleryTypeEnabled || bulkColourEnabled || bulkCountEnabled)
+            }
+            onClick={applyBulkTaxonomy}
+          >
+            {bulkUpdateTaxonomy.isPending ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : `Apply to ${selected.size}`}
+          </Button>
+        </Card>
+      )}
+
       {productsLoading && page === 0 ? (
         <div className="flex h-64 items-center justify-center">
           <Spinner className="h-6 w-6" />
@@ -621,12 +746,23 @@ export default function ProductCuration() {
 // 023) -- plain <select>, same style as the "Curating portal for"
 // dropdown above. A blank option always exists (unclassified is valid
 // -- not every product needs every facet set).
-function TaxonomySelect({ value, options, onChange }: { value: string | null; options: TaxonomyRow[]; onChange: (value: string) => void }) {
+function TaxonomySelect({
+  value,
+  options,
+  onChange,
+  disabled,
+}: {
+  value: string | null;
+  options: TaxonomyRow[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
   return (
     <select
-      className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+      className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)] disabled:opacity-50"
       value={value ?? ''}
       onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
     >
       <option value="">—</option>
       {options.map((o) => (

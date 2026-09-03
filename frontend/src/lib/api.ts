@@ -129,6 +129,10 @@ export const productsApi = {
       `/products/${productId}/taxonomy`,
       input
     ),
+  bulkUpdateTaxonomy: (
+    productIds: string[],
+    input: Partial<{ product_type_id: string | null; jewellery_type_id: string | null; colour_id: string | null; jewellery_count: number | null }>
+  ) => request<{ updated: number }>('POST', '/products/bulk/update-taxonomy', { product_ids: productIds, ...input }),
 };
 
 export interface ManageableStore {

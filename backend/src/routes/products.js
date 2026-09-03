@@ -53,6 +53,14 @@ router.patch(
 );
 
 router.post(
+  '/bulk/update-taxonomy',
+  asyncHandler(async (req, res) => {
+    const result = await productsService.bulkUpdateTaxonomy(req, req.body?.product_ids, req.body);
+    res.json(result);
+  })
+);
+
+router.post(
   '/:id/images',
   upload.single('file'),
   asyncHandler(async (req, res) => {

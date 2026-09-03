@@ -38,8 +38,11 @@ function requireClientId(clientId) {
 // change one field at a time.
 const TAXONOMY_REF_FIELDS = ['product_type_id', 'jewellery_type_id', 'colour_id'];
 
-async function updateTaxonomy(req, productId, input) {
-  requireStaff(req);
+// Shared by the single- and bulk-update paths -- only the keys actually
+// present in input are touched (a bulk edit only applies the fields
+// staff explicitly opted into, same "one field at a time" contract as
+// the single-product editor).
+function buildTaxonomyPatch(input) {
   const patch = {};
   for (const field of TAXONOMY_REF_FIELDS) {
     if (field in (input || {})) patch[field] = input[field] || null;
@@ -52,6 +55,12 @@ async function updateTaxonomy(req, productId, input) {
     patch.jewellery_count = count ?? null;
   }
   if (Object.keys(patch).length === 0) throw new ApiError(400, 'Nothing to update');
+  return patch;
+}
+
+async function updateTaxonomy(req, productId, input) {
+  requireStaff(req);
+  const patch = buildTaxonomyPatch(input);
 
   const { data, error } = await supabaseAdmin
     .from('products')
@@ -62,6 +71,23 @@ async function updateTaxonomy(req, productId, input) {
   if (error) throw new ApiError(500, 'Failed to update product classification', error.message);
   if (!data) throw new ApiError(404, 'Product not found');
   return data;
+}
+
+// Global classification only -- entirely independent of which client
+// is selected in the curation UI, unlike the per-client override bulk
+// actions, so this carries none of the wrong-client risk those do.
+async function bulkUpdateTaxonomy(req, productIds, input) {
+  requireStaff(req);
+  if (!Array.isArray(productIds) || productIds.length === 0) throw new ApiError(400, 'product_ids must be a non-empty array');
+  const patch = buildTaxonomyPatch(input);
+
+  const { data, error } = await supabaseAdmin
+    .from('products')
+    .update(patch)
+    .in('id', productIds)
+    .select('id, product_type_id, jewellery_type_id, colour_id, jewellery_count');
+  if (error) throw new ApiError(500, 'Failed to bulk update product classification', error.message);
+  return { updated: data.length, products: data };
 }
 
 async function runSync(req) {
@@ -172,4 +198,4 @@ async function deleteImage(req, imageId) {
   if (removeErr) console.error(`[products] failed to remove storage object ${image.storage_path}:`, removeErr.message);
 }
 
-module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal, uploadImage, deleteImage, updateTaxonomy };
+module.exports = { runSync, addToPortal, removeFromPortal, bulkAddToPortal, uploadImage, deleteImage, updateTaxonomy, bulkUpdateTaxonomy };
