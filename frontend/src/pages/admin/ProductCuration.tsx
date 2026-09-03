@@ -33,6 +33,28 @@ type PortalFilter = 'all' | 'in_portal' | 'not_in_portal';
 const PAGE_SIZE = 100;
 const SEARCH_DEBOUNCE_MS = 300;
 
+// Deterministic colour per client (hashed from its id) -- reuses the
+// app's existing tone palette (same CSS vars Badge draws from) rather
+// than inventing new colours, so a client's "identity colour" here
+// stays visually consistent with everything else. The point is purely
+// perceptual: staff curating several clients in a row should notice a
+// colour CHANGE even before reading the name, making it harder to keep
+// working under the wrong client after a switch.
+const CLIENT_COLOR_PALETTE = [
+  { bg: 'bg-[var(--accent-muted)]', text: 'text-[var(--accent)]', border: 'border-[var(--accent)]' },
+  { bg: 'bg-[var(--success-muted)]', text: 'text-[var(--success)]', border: 'border-[var(--success)]' },
+  { bg: 'bg-[var(--warning-muted)]', text: 'text-[var(--warning)]', border: 'border-[var(--warning)]' },
+  { bg: 'bg-[var(--purple-muted)]', text: 'text-[var(--purple)]', border: 'border-[var(--purple)]' },
+  { bg: 'bg-[var(--teal-muted)]', text: 'text-[var(--teal)]', border: 'border-[var(--teal)]' },
+  { bg: 'bg-[var(--danger-muted)]', text: 'text-[var(--danger)]', border: 'border-[var(--danger)]' },
+];
+
+function clientColor(clientId: string) {
+  let hash = 0;
+  for (let i = 0; i < clientId.length; i++) hash = (hash * 31 + clientId.charCodeAt(i)) | 0;
+  return CLIENT_COLOR_PALETTE[Math.abs(hash) % CLIENT_COLOR_PALETTE.length];
+}
+
 // Sanitize for embedding in a PostgREST .or() filter string -- commas
 // and parentheses have syntax meaning there.
 function sanitizeSearch(q: string) {
@@ -60,12 +82,6 @@ export default function ProductCuration() {
     return () => window.clearTimeout(t);
   }, [searchInput]);
 
-  // Reset pagination whenever the search term changes.
-  React.useEffect(() => {
-    setPage(0);
-    setRows([]);
-  }, [search]);
-
   const { data: clients } = useQuery({
     queryKey: ['admin-clients'],
     queryFn: async () => {
@@ -78,6 +94,13 @@ export default function ProductCuration() {
   React.useEffect(() => {
     if (!selectedClientId && clients && clients.length > 0) setSelectedClientId(clients[0].id);
   }, [clients, selectedClientId]);
+
+  // Reset pagination whenever the query's shape changes -- search term,
+  // portal filter, or which client's curation the filter is scoped to.
+  React.useEffect(() => {
+    setPage(0);
+    setRows([]);
+  }, [search, portalFilter, selectedClientId]);
 
   const { data: portalProductIds } = useQuery({
     queryKey: ['client-portal-products', selectedClientId],
@@ -134,8 +157,22 @@ export default function ProductCuration() {
     error: productsError,
     isFetching,
   } = useQuery({
-    queryKey: ['admin-products-search', search, page],
+    // portalFilter/selectedClientId are part of the key -- this query's
+    // shape genuinely changes with them now (see below), not just a
+    // client-side re-filter of whatever page happened to be loaded.
+    queryKey: ['admin-products-search', search, page, portalFilter, selectedClientId],
     queryFn: async () => {
+      // "On this portal" / "Not on this portal" must filter the whole
+      // ~7,000-product catalog server-side, not just whatever page is
+      // already loaded -- with a catalog this size, a curated product
+      // is essentially never on the first alphabetical page. Filtering
+      // `rows` client-side (the old approach) only ever "worked" by
+      // accident when the catalog was small enough that pagination
+      // barely mattered.
+      if (portalFilter === 'in_portal' && (!portalProductIds || portalProductIds.size === 0)) {
+        return [];
+      }
+
       let query = supabase
         .from('products')
         .select(
@@ -149,10 +186,20 @@ export default function ProductCuration() {
         query = query.or(`sku.ilike.%${q}%,name.ilike.%${q}%,category.ilike.%${q}%,brand.ilike.%${q}%`);
       }
 
+      if (portalFilter === 'in_portal') {
+        query = query.in('id', [...portalProductIds!]);
+      } else if (portalFilter === 'not_in_portal' && portalProductIds && portalProductIds.size > 0) {
+        query = query.not('id', 'in', `(${[...portalProductIds].join(',')})`);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
       return data as unknown as ProductRow[];
     },
+    // Wait for portalProductIds before running an in_portal/not_in_portal
+    // query keyed off it -- otherwise the first render would fire the
+    // "all products" shape and immediately refetch once it arrives.
+    enabled: portalFilter === 'all' || !!portalProductIds,
   });
 
   React.useEffect(() => {
@@ -161,17 +208,16 @@ export default function ProductCuration() {
     setHasMore(page_.length === PAGE_SIZE);
   }, [page_, page]);
 
-  const filtered = React.useMemo(() => {
-    if (!portalProductIds) return rows;
-    return rows.filter((p) => {
-      if (portalFilter === 'in_portal') return portalProductIds.has(p.id);
-      if (portalFilter === 'not_in_portal') return !portalProductIds.has(p.id);
-      return true;
-    });
-  }, [rows, portalProductIds, portalFilter]);
+  // The portal-status filter is now applied server-side (see the query
+  // above) -- `rows` already reflects it, nothing left to filter here.
+  const filtered = rows;
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['client-portal-products', selectedClientId] });
+    // Also refresh the product list itself -- when filtered to "on
+    // portal" / "not on portal", adding or removing a product changes
+    // which rows should even be showing, not just their badge.
+    queryClient.invalidateQueries({ queryKey: ['admin-products-search'] });
   };
 
   const toggleOne = useMutation({
@@ -182,6 +228,18 @@ export default function ProductCuration() {
     onSuccess: invalidate,
     onError: (err: Error) => setActionError(err.message),
   });
+
+  // Removing always confirms (naming the client, since a wrong-client
+  // mistake here silently hides a product from a real buyer's
+  // catalog) -- adding stays instant, low blast radius, easy to undo.
+  function requestToggle(p: ProductRow) {
+    const onPortal = portalProductIds?.has(p.id) ?? false;
+    if (onPortal) {
+      const ok = window.confirm(`Remove "${p.name}" from ${selectedClient?.name ?? 'this client'}'s portal? Their buyers will no longer see it.`);
+      if (!ok) return;
+    }
+    toggleOne.mutate(p);
+  }
 
   const bulkAdd = useMutation({
     mutationFn: () => productsApi.bulkAddToPortal([...selected], selectedClientId!),
@@ -299,6 +357,26 @@ export default function ProductCuration() {
   }
 
   const selectedClient = clients?.find((c) => c.id === selectedClientId);
+  const color = selectedClientId ? clientColor(selectedClientId) : null;
+
+  // Switching client mid-edit is the highest-risk moment for a wrong-
+  // client mistake -- warn (naming both clients) whenever there's
+  // pending, about-to-be-discarded work: a bulk selection in progress,
+  // or the per-product attributes editor open. Same pattern Catalog
+  // already uses for "switching store clears your cart."
+  function handleClientChange(newClientId: string) {
+    const hasPendingWork = selected.size > 0 || expandedProductId !== null;
+    if (hasPendingWork && newClientId !== selectedClientId) {
+      const fromName = selectedClient?.name ?? 'the current client';
+      const ok = window.confirm(
+        `Switching from ${fromName} will clear your current selection${expandedProductId ? ' and close the open attributes editor' : ''}. Continue?`
+      );
+      if (!ok) return;
+    }
+    setSelectedClientId(newClientId);
+    setSelected(new Set());
+    setExpandedProductId(null);
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -310,15 +388,21 @@ export default function ProductCuration() {
         </Button>
       </div>
 
-      <Card className="flex flex-wrap items-center gap-2 p-3">
-        <span className="text-sm text-[var(--muted-foreground)]">Curating portal for</span>
+      {/* Sticky + colour-coded so which client is active stays
+          impossible to miss even after scrolling through a long
+          product list -- the colour itself is a perceptual check: a
+          staff member curating several clients in a row should notice
+          a colour CHANGE even before reading the name. */}
+      <Card
+        className={`sticky top-0 z-20 flex flex-wrap items-center gap-2 border-2 p-3 ${color ? `${color.bg} ${color.border}` : ''}`}
+      >
+        <span className={`text-xs font-semibold uppercase tracking-wide ${color ? color.text : 'text-[var(--muted-foreground)]'}`}>
+          Curating for
+        </span>
         <select
-          className="h-9 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="h-9 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm font-semibold outline-none focus:ring-2 focus:ring-[var(--accent)]"
           value={selectedClientId ?? ''}
-          onChange={(e) => {
-            setSelectedClientId(e.target.value);
-            setSelected(new Set());
-          }}
+          onChange={(e) => handleClientChange(e.target.value)}
         >
           {(clients ?? []).map((c) => (
             <option key={c.id} value={c.id}>
@@ -326,7 +410,9 @@ export default function ProductCuration() {
             </option>
           ))}
         </select>
-        {selectedClient && <span className="text-xs text-[var(--muted-foreground)]">Products added here only show up for this client.</span>}
+        {selectedClient && (
+          <span className="text-xs text-[var(--muted-foreground)]">Products added/removed here only affect this client.</span>
+        )}
       </Card>
 
       {syncResult && <p className="text-sm text-[var(--success)]">{syncResult}</p>}
@@ -336,7 +422,7 @@ export default function ProductCuration() {
         <div className="relative w-full max-w-sm">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
           <Input
-            placeholder="Search all ~5,000 Cin7 products by SKU, name, category..."
+            placeholder="Search all ~7,000 Cin7 products by SKU, name, category..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="pl-9"
@@ -358,7 +444,16 @@ export default function ProductCuration() {
         </div>
 
         {selected.size > 0 && (
-          <Button variant="primary" onClick={() => bulkAdd.mutate()} disabled={bulkAdd.isPending || !selectedClientId}>
+          <Button
+            variant="primary"
+            onClick={() => {
+              const ok = window.confirm(
+                `Add ${selected.size} product${selected.size === 1 ? '' : 's'} to ${selectedClient?.name ?? 'this client'}'s portal? This makes them visible to their buyers immediately.`
+              );
+              if (ok) bulkAdd.mutate();
+            }}
+            disabled={bulkAdd.isPending || !selectedClientId}
+          >
             {bulkAdd.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : `Add ${selected.size} to this client's portal`}
           </Button>
         )}
@@ -468,7 +563,7 @@ export default function ProductCuration() {
                           </Button>
                         </td>
                         <td className="px-4 py-2 text-right">
-                          <Button size="sm" variant="ghost" onClick={() => toggleOne.mutate(p)} disabled={toggleOne.isPending || !selectedClientId}>
+                          <Button size="sm" variant="ghost" onClick={() => requestToggle(p)} disabled={toggleOne.isPending || !selectedClientId}>
                             {onPortal ? 'Remove' : 'Add'}
                           </Button>
                         </td>
