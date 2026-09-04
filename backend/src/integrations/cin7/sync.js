@@ -49,6 +49,36 @@ async function resolveShippingAddress(store) {
   };
 }
 
+// Resolves each order line's CLIENT SKU (client_product_skus) by
+// sku -> product_id -> client_sku, so it can ride along on the Cin7
+// Sale as a per-line Comment (see lines.js). Best-effort: any lookup
+// failure just means those lines go without a Comment, never fails
+// the sync over it.
+async function resolveClientSkuBySku(lines, clientId) {
+  const skus = [...new Set(lines.map((l) => l.sku))];
+  if (skus.length === 0) return new Map();
+
+  const { data: products, error: productsErr } = await supabaseAdmin.from('products').select('id, sku').in('sku', skus);
+  if (productsErr || !products) return new Map();
+  const productIdBySku = new Map(products.map((p) => [p.sku, p.id]));
+
+  const { data: clientSkuRows, error: skusErr } = await supabaseAdmin
+    .from('client_product_skus')
+    .select('product_id, client_sku')
+    .eq('client_id', clientId)
+    .in('product_id', [...productIdBySku.values()]);
+  if (skusErr || !clientSkuRows) return new Map();
+  const clientSkuByProductId = new Map(clientSkuRows.map((r) => [r.product_id, r.client_sku]));
+
+  const result = new Map();
+  for (const sku of skus) {
+    const productId = productIdBySku.get(sku);
+    const clientSku = productId ? clientSkuByProductId.get(productId) : undefined;
+    if (clientSku) result.set(sku, clientSku);
+  }
+  return result;
+}
+
 function validateSyncable(client, store, lines) {
   const problems = [];
   if (!client?.cin7_customer_id) problems.push('client has no cin7_customer_id');
@@ -162,7 +192,8 @@ async function syncOrderToCin7(order) {
     return recordFailed(fresh.id, `Order is not ready to sync: ${problems.join('; ')}`);
   }
 
-  const saleLines = buildSaleOrderLines(lines, client);
+  const clientSkuBySku = await resolveClientSkuBySku(lines, client.id);
+  const saleLines = buildSaleOrderLines(lines, client, clientSkuBySku);
 
   try {
     // Cin7-side idempotency check: closes the gap the local-only guard

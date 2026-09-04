@@ -30,16 +30,25 @@ function mergeDuplicateLines(lines) {
 // schema requires the caller to supply Tax/Total up front, and
 // order_lines carries no tax data of its own -- see clients.tax_rate.
 //
-// Comment is deliberately NOT sent -- order_lines.description gets
-// auto-populated with the product name (+ client SKU) at cart-add time
-// purely for our own UI display, and Cin7 already shows the product
-// name via its own SKU lookup, so pushing that same text into Cin7's
-// line Comment field just duplicated it there for no reason.
-function buildSaleOrderLine(line, client) {
+// Comment carries the CLIENT's own SKU (client_product_skus -- the
+// portal stays the source of truth for it, this is a one-way push at
+// sync time, not a two-way sync) so it shows up on Cin7's own Sale
+// documents (packing slip/invoice PDF templates) next to the
+// description. Cin7 has no per-customer SKU field of its own at all
+// (see client_product_skus' migration comment -- every Cin7 product
+// field is global, shared across every customer), so Comment is the
+// only place this can land in a Cin7-native document. Deliberately not
+// the product name/description itself -- Cin7 already shows that via
+// its own SKU lookup, so Comment stays a single clean field just for
+// the client's code. clientSkuBySku is resolved by the caller
+// (sync.js's resolveClientSkuBySku) -- this file has no DB access of
+// its own.
+function buildSaleOrderLine(line, client, clientSkuBySku) {
   const quantity = Number(line.quantity);
   const price = Number(line.unit_price ?? 0);
   const subtotal = round2(quantity * price);
   const tax = round2(subtotal * Number(client.tax_rate));
+  const clientSku = clientSkuBySku?.get(line.sku);
   return {
     SKU: line.sku,
     Quantity: quantity,
@@ -47,11 +56,12 @@ function buildSaleOrderLine(line, client) {
     Tax: tax,
     Total: round2(subtotal + tax),
     TaxRule: client.cin7_tax_rule,
+    ...(clientSku ? { Comment: clientSku } : {}),
   };
 }
 
-function buildSaleOrderLines(lines, client) {
-  return mergeDuplicateLines(lines).map((l) => buildSaleOrderLine(l, client));
+function buildSaleOrderLines(lines, client, clientSkuBySku) {
+  return mergeDuplicateLines(lines).map((l) => buildSaleOrderLine(l, client, clientSkuBySku));
 }
 
 module.exports = { mergeDuplicateLines, buildSaleOrderLine, buildSaleOrderLines };
