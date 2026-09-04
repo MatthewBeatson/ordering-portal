@@ -30,25 +30,29 @@ function mergeDuplicateLines(lines) {
 // schema requires the caller to supply Tax/Total up front, and
 // order_lines carries no tax data of its own -- see clients.tax_rate.
 //
-// Comment carries the CLIENT's own SKU (client_product_skus -- the
-// portal stays the source of truth for it, this is a one-way push at
-// sync time, not a two-way sync) so it shows up on Cin7's own Sale
-// documents (packing slip/invoice PDF templates) next to the
-// description. Cin7 has no per-customer SKU field of its own at all
-// (see client_product_skus' migration comment -- every Cin7 product
-// field is global, shared across every customer), so Comment is the
-// only place this can land in a Cin7-native document. Deliberately not
-// the product name/description itself -- Cin7 already shows that via
-// its own SKU lookup, so Comment stays a single clean field just for
-// the client's code. clientSkuBySku is resolved by the caller
-// (sync.js's resolveClientSkuBySku) -- this file has no DB access of
-// its own.
-function buildSaleOrderLine(line, client, clientSkuBySku) {
+// Name is overridden to "<current Cin7 name> - <client sku>" when a
+// client SKU is known (client_product_skus -- the portal stays the
+// source of truth for it, this is a one-way push at sync time, not a
+// two-way sync). Confirmed with the client: Cin7's own per-line
+// Comment field isn't actually shown on standard Sale reports/PDF
+// templates, but the line's Name/description always is, so that's the
+// reliable place for this rather than Comment alone. Comment is still
+// set too, at no extra cost, in case a particular template does
+// surface it. Cin7 has no per-customer SKU field of its own at all
+// (every Cin7 product field is global, shared across every customer --
+// see client_product_skus' migration comment), so this override is the
+// only way the client's own code reaches a Cin7-native document.
+// lineOverrides (Map<sku, {name, clientSku}>) is resolved by the
+// caller (sync.js's resolveLineOverrides) -- this file has no DB
+// access of its own. No override for a line (no client SKU set for
+// that product/client) leaves Name unset entirely, same as before this
+// feature existed -- Cin7 resolves its own display name via the SKU.
+function buildSaleOrderLine(line, client, lineOverrides) {
   const quantity = Number(line.quantity);
   const price = Number(line.unit_price ?? 0);
   const subtotal = round2(quantity * price);
   const tax = round2(subtotal * Number(client.tax_rate));
-  const clientSku = clientSkuBySku?.get(line.sku);
+  const override = lineOverrides?.get(line.sku);
   return {
     SKU: line.sku,
     Quantity: quantity,
@@ -56,12 +60,12 @@ function buildSaleOrderLine(line, client, clientSkuBySku) {
     Tax: tax,
     Total: round2(subtotal + tax),
     TaxRule: client.cin7_tax_rule,
-    ...(clientSku ? { Comment: clientSku } : {}),
+    ...(override ? { Name: override.name, Comment: override.clientSku } : {}),
   };
 }
 
-function buildSaleOrderLines(lines, client, clientSkuBySku) {
-  return mergeDuplicateLines(lines).map((l) => buildSaleOrderLine(l, client, clientSkuBySku));
+function buildSaleOrderLines(lines, client, lineOverrides) {
+  return mergeDuplicateLines(lines).map((l) => buildSaleOrderLine(l, client, lineOverrides));
 }
 
 module.exports = { mergeDuplicateLines, buildSaleOrderLine, buildSaleOrderLines };
