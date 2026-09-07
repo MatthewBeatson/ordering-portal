@@ -31,14 +31,30 @@ function ProductPicker({
     queryKey: ['custom-group-rules-product-search', query],
     queryFn: async () => {
       const q = query.trim();
+      // !inner restricts to products actually curated onto at least one
+      // client's portal (client_portal_products) -- a custom grouping
+      // rule should only ever reference something a buyer can actually
+      // see, never the full uncurated Cin7 mirror is_portal_admin can
+      // otherwise browse (same "on portal" concept as Product Curation's
+      // filter). client_portal_products has one row per client a
+      // product's curated onto, so the same product can come back more
+      // than once here -- deduped by id below before slicing to 10.
       const { data, error } = await supabase
         .from('products')
-        .select('id, sku, name')
+        .select('id, sku, name, client_portal_products!inner(client_id)')
         .or(`sku.ilike.%${q}%,name.ilike.%${q}%`)
         .order('name')
-        .limit(10);
+        .limit(30);
       if (error) throw error;
-      return data as ProductRef[];
+      const seen = new Set<string>();
+      const deduped: ProductRef[] = [];
+      for (const row of data as ProductRef[]) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        deduped.push(row);
+        if (deduped.length === 10) break;
+      }
+      return deduped;
     },
     enabled: query.trim().length > 1,
   });
