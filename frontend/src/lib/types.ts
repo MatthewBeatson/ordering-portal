@@ -52,6 +52,9 @@ export interface Client {
   name: string;
   cin7_price_tier: string | null;
   show_pricing: boolean;
+  // Display currency (029) -- purely a portal-side symbol/label choice;
+  // the Cin7 Sale conversion rate is the separate cin7_currency_rate.
+  currency: string;
 }
 
 export interface ProductType {

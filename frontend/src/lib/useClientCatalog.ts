@@ -33,7 +33,7 @@ export function useClientCatalog(clientId: string | undefined) {
   const { data: client } = useQuery({
     queryKey: ['client', clientId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('clients').select('id, name, cin7_price_tier, show_pricing').eq('id', clientId!).single();
+      const { data, error } = await supabase.from('clients').select('id, name, cin7_price_tier, show_pricing, currency').eq('id', clientId!).single();
       if (error) throw error;
       return data as Client;
     },
@@ -43,6 +43,8 @@ export function useClientCatalog(clientId: string | undefined) {
   // Defaults true while loading -- matches the column's own DB default,
   // so pricing doesn't flash hidden then shown on every page load.
   const showPricing = client?.show_pricing ?? true;
+  // Defaults to NZD while loading, matching the column's own DB default.
+  const currency = client?.currency ?? 'NZD';
 
   const { data: clientSkus } = useQuery({
     queryKey: ['client-product-skus', clientId],
@@ -144,5 +146,5 @@ export function useClientCatalog(clientId: string | undefined) {
     return map;
   }, [products]);
 
-  return { client, tierNumber, showPricing, clientSkuByProduct, jewelleryCountByProduct, products, productsLoading, productsError };
+  return { client, tierNumber, showPricing, currency, clientSkuByProduct, jewelleryCountByProduct, products, productsLoading, productsError };
 }

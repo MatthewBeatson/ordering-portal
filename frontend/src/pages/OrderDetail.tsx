@@ -69,7 +69,7 @@ export default function OrderDetail() {
   const { data: thumbnails } = useProductThumbnails(showImages ? (order?.order_lines ?? []).map((l) => l.sku) : []);
 
   const clientId = stores?.find((s) => s.id === order?.store_id)?.client_id;
-  const { showPricing } = useClientCatalog(clientId);
+  const { showPricing, currency } = useClientCatalog(clientId);
   const { bySku } = useResolvedLines((order?.order_lines ?? []).map((l) => l.sku), clientId);
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
@@ -202,8 +202,8 @@ export default function OrderDetail() {
                     <th className="px-2 py-2 font-medium">SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
                     <th className="px-2 py-2 font-medium">Qty</th>
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
-                    {hasPricing && <th className="px-4 py-2 text-right font-medium">Line total</th>}
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
+                    {hasPricing && <th className="px-4 py-2 text-right font-medium">Line total ({currency})</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -227,8 +227,8 @@ export default function OrderDetail() {
                         <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
                         <td className="px-2 py-2">{line.description ?? '—'}</td>
                         <td className="px-2 py-2">{line.quantity}</td>
-                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
-                        {hasPricing && <td className="px-4 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price, currency)}</td>}
+                        {hasPricing && <td className="px-4 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null, currency)}</td>}
                       </tr>
                     );
                   })}
@@ -241,8 +241,8 @@ export default function OrderDetail() {
 
       {hasPricing && (
         <Card className="flex items-center justify-end gap-3 px-4 py-2">
-          <span className="text-sm font-medium">Total</span>
-          <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+          <span className="text-sm font-medium">Total ({currency})</span>
+          <span className="text-sm font-semibold tabular-nums">{money(total, currency)}</span>
         </Card>
       )}
 

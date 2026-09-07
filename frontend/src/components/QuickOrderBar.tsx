@@ -19,6 +19,7 @@ interface QuickOrderBarProps {
   // the match list below.
   tierNumber: number | null;
   showPricing: boolean;
+  currency: string;
 }
 
 const MAX_MATCHES = 8;
@@ -37,7 +38,7 @@ function Kbd({ children }: { children: React.ReactNode }) {
 // button users) -> adds to cart and resets, focus back on Search for the
 // next item. Built for someone working off a phone/paper order list who
 // wants to never touch the mouse.
-export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPricing }: QuickOrderBarProps) {
+export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPricing, currency }: QuickOrderBarProps) {
   const cart = useCart();
   const [query, setQuery] = React.useState('');
   const [selected, setSelected] = React.useState<Product | null>(null);
@@ -200,7 +201,7 @@ export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPr
                     <span className="font-mono text-xs text-[var(--muted-foreground)]">{p.sku}</span> {p.name}
                   </span>
                   {tierNumber && showPricing && (
-                    <span className="tabular-nums text-[var(--muted-foreground)]">{money(tierPrice(p, tierNumber))}</span>
+                    <span className="tabular-nums text-[var(--muted-foreground)]">{money(tierPrice(p, tierNumber), currency)}</span>
                   )}
                 </li>
               ))}

@@ -6,6 +6,7 @@ import { useActiveClient } from '@/lib/ActiveClientContext';
 import { useMyStores } from '@/lib/useStores';
 import { useClientCatalog, type ProductRow } from '@/lib/useClientCatalog';
 import { tierPrice } from '@/lib/pricing';
+import { money } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -94,7 +95,7 @@ export default function Catalog() {
   // value still has to flow through to Cin7 for invoicing regardless
   // of whether this client's buyers can see prices in the portal.
   // showPricing only gates what gets *displayed*.
-  const { tierNumber, showPricing, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
+  const { tierNumber, showPricing, currency, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
 
   const [search, setSearch] = React.useState('');
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
@@ -375,7 +376,7 @@ export default function Catalog() {
         {products && products.length > 0 && (
           <div className="flex flex-col gap-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} />
+            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
           </div>
         )}
       </div>
@@ -402,7 +403,7 @@ export default function Catalog() {
                       <th className="px-2 py-2 font-medium">Our SKU</th>
                       <th className="px-2 py-2 font-medium">Client SKU</th>
                       <th className="px-2 py-2 font-medium">Product</th>
-                      {tierNumber && showPricing && <th className="px-2 py-2 text-right font-medium">Price</th>}
+                      {tierNumber && showPricing && <th className="px-2 py-2 text-right font-medium">Price ({currency})</th>}
                       <th className="px-2 py-2 font-medium">Qty</th>
                       <th className="px-4 py-2 font-medium"></th>
                     </tr>
@@ -434,7 +435,7 @@ export default function Catalog() {
                             {p.description && <div className="text-xs text-[var(--muted-foreground)] line-clamp-1">{p.description}</div>}
                           </td>
                           {tierNumber && showPricing && (
-                            <td className="px-2 py-2 text-right tabular-nums">{price != null ? `$${price.toFixed(2)}` : '—'}</td>
+                            <td className="px-2 py-2 text-right tabular-nums">{money(price, currency)}</td>
                           )}
                           <td className="px-2 py-2">
                             <Input

@@ -1,6 +1,18 @@
-export function money(n: number | null | undefined) {
+// Display symbol per client currency (clients.currency, 029) -- $ stays
+// the default so every existing NZD/AUD client is unaffected; anything
+// unmapped falls back to the code itself (e.g. "USD 12.00") rather than
+// silently showing the wrong symbol.
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  NZD: '$',
+  AUD: '$',
+  USD: '$',
+  GBP: '£',
+};
+
+export function money(n: number | null | undefined, currency: string = 'NZD') {
   if (n == null) return '—';
-  return `$${n.toFixed(2)}`;
+  const symbol = CURRENCY_SYMBOLS[currency] ?? `${currency} `;
+  return `${symbol}${n.toFixed(2)}`;
 }
 
 export function dateTime(iso: string | null | undefined) {

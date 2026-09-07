@@ -36,7 +36,7 @@ export default function Cart() {
   const currentStore = stores?.find((s) => s.id === cart.storeId);
   // tierNumber stays real regardless of showPricing -- see Catalog.tsx's
   // note; it's what QuickOrderBar computes unit_price from on add.
-  const { tierNumber, showPricing, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
+  const { tierNumber, showPricing, currency, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
   const { bySku } = useResolvedLines(cart.lines.map((l) => l.sku), currentStore?.client_id);
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
@@ -142,7 +142,7 @@ export default function Cart() {
       {products && products.length > 0 && (
         <div className="flex flex-col gap-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} />
+          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
         </div>
       )}
 
@@ -175,8 +175,8 @@ export default function Cart() {
                     <th className="px-2 py-2 font-medium">SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
                     <th className="px-2 py-2 font-medium">Qty</th>
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price</th>}
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Line total</th>}
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
+                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Line total ({currency})</th>}
                     <th className="w-10 px-4 py-2"></th>
                   </tr>
                 </thead>
@@ -209,8 +209,8 @@ export default function Cart() {
                             className="h-8 w-16 px-2"
                           />
                         </td>
-                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price)}</td>}
-                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null)}</td>}
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price, currency)}</td>}
+                        {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price != null ? line.unit_price * line.quantity : null, currency)}</td>}
                         <td className="px-4 py-2 text-right">
                           <button onClick={() => cart.removeLine(line.sku)} className="text-[var(--muted-foreground)] hover:text-[var(--danger)]">
                             <Trash2 className="h-4 w-4" />
@@ -228,8 +228,8 @@ export default function Cart() {
 
       {hasPricing && (
         <Card className="flex items-center justify-end gap-3 px-4 py-2">
-          <span className="text-sm font-medium">Total</span>
-          <span className="text-sm font-semibold tabular-nums">{money(total)}</span>
+          <span className="text-sm font-medium">Total ({currency})</span>
+          <span className="text-sm font-semibold tabular-nums">{money(total, currency)}</span>
         </Card>
       )}
 
