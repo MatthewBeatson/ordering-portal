@@ -159,27 +159,40 @@ export default function Catalog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products, search, clientSkuByProduct, groupMode, selectedDisplaySystemIdsKey]);
 
-  // A row matches if it satisfies every active facet except the one
-  // named in `excludeKey` (pass null to apply all three, used for the
-  // final product list; pass a facet's own key when computing THAT
-  // facet's chip options, so its own selection doesn't shrink its own
-  // choices).
+  // Which facets apply depends on grouping mode: all three under "by
+  // display system", but "Type" is dropped under "by product type" --
+  // that view already groups by type, so a type filter on top would be
+  // redundant. Jewellery held / Colour still filter (not just group) in
+  // either mode.
+  const visibleFacets = React.useMemo(
+    () => (groupMode === 'display' ? FACETS : FACETS.filter((f) => f.key !== 'productType')),
+    [groupMode]
+  );
+
+  // A row matches if it satisfies every active, currently-visible facet
+  // except the one named in `excludeKey` (pass null to apply all of
+  // them, used for the final product list; pass a facet's own key when
+  // computing THAT facet's chip options, so its own selection doesn't
+  // shrink its own choices). A facet hidden by the current mode (e.g.
+  // Type while grouping by product type) is simply not checked -- any
+  // leftover selection on it stays inert, not reset, and re-applies if
+  // the user switches back.
   const matchesFacets = React.useCallback(
     (p: ProductRow, excludeKey: FacetKey | null) =>
-      FACETS.every((f) => {
+      visibleFacets.every((f) => {
         if (f.key === excludeKey) return true;
         const selected = facetSelections[f.key];
         if (selected.size === 0) return true;
         const ref = f.getRef(p);
         return !!ref && selected.has(ref.id);
       }),
-    [facetSelections]
+    [facetSelections, visibleFacets]
   );
 
-  const filtered = React.useMemo(() => {
-    if (groupMode !== 'display') return searchAndDisplayFiltered;
-    return searchAndDisplayFiltered.filter((p) => matchesFacets(p, null));
-  }, [searchAndDisplayFiltered, groupMode, matchesFacets]);
+  const filtered = React.useMemo(
+    () => searchAndDisplayFiltered.filter((p) => matchesFacets(p, null)),
+    [searchAndDisplayFiltered, matchesFacets]
+  );
 
   const displaySystemChips = React.useMemo(() => {
     if (!products) return [];
@@ -198,7 +211,7 @@ export default function Catalog() {
   // types appear (including 'by product type' mode's own grouping).
   const facetChips = React.useMemo(() => {
     const result = {} as Record<FacetKey, FacetRef[]>;
-    for (const facet of FACETS) {
+    for (const facet of visibleFacets) {
       const map = new Map<string, FacetRef>();
       for (const p of searchAndDisplayFiltered) {
         if (!matchesFacets(p, facet.key)) continue;
@@ -208,7 +221,7 @@ export default function Catalog() {
       result[facet.key] = [...map.values()].sort((a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name));
     }
     return result;
-  }, [searchAndDisplayFiltered, matchesFacets]);
+  }, [searchAndDisplayFiltered, matchesFacets, visibleFacets]);
 
   function toggleFacet(key: FacetKey, id: string) {
     setFacetSelections((prev) => {
@@ -337,27 +350,26 @@ export default function Catalog() {
             </div>
           )}
 
-          {groupMode === 'display' &&
-            FACETS.map((facet) =>
-              facetChips[facet.key].length > 0 ? (
-                <div key={facet.key} className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-xs text-[var(--muted-foreground)]">{facet.label}:</span>
-                  {facetChips[facet.key].map((ref) => (
-                    <button key={ref.id} onClick={() => toggleFacet(facet.key, ref.id)}>
-                      <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
-                    </button>
-                  ))}
-                  {facetSelections[facet.key].size > 0 && (
-                    <button
-                      onClick={() => setFacetSelections((prev) => ({ ...prev, [facet.key]: new Set<string>() }))}
-                      className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              ) : null
-            )}
+          {visibleFacets.map((facet) =>
+            facetChips[facet.key]?.length > 0 ? (
+              <div key={facet.key} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs text-[var(--muted-foreground)]">{facet.label}:</span>
+                {facetChips[facet.key].map((ref) => (
+                  <button key={ref.id} onClick={() => toggleFacet(facet.key, ref.id)}>
+                    <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
+                  </button>
+                ))}
+                {facetSelections[facet.key].size > 0 && (
+                  <button
+                    onClick={() => setFacetSelections((prev) => ({ ...prev, [facet.key]: new Set<string>() }))}
+                    className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            ) : null
+          )}
         </div>
 
         {products && products.length > 0 && (

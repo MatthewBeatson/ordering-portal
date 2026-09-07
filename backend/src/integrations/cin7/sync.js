@@ -54,14 +54,14 @@ async function resolveShippingAddress(store) {
 // <client sku>" Name override from it -- confirmed with the client:
 // Cin7's own per-line Comment field isn't actually shown on standard
 // Sale reports/PDF templates, but Name/description always is, so
-// that's the reliable place to put this. `product.name` here is
+// that's the reliable place to put this (Comment itself is deliberately
+// not also set -- dropped 2026-09-07 at the client's request, Name
+// alone is the single place this lives now). `product.name` here is
 // whatever productSync.js most recently synced from Cin7 (it's kept
 // current on every sync, unlike the portal-native taxonomy fields), so
 // the override always reflects Cin7's current master name, never a
-// stale copy. Comment is set too, at no extra cost, in case a
-// particular template does surface it. Best-effort throughout: any
-// lookup failure just means those lines go without an override, never
-// fails the sync.
+// stale copy. Best-effort throughout: any lookup failure just means
+// those lines go without an override, never fails the sync.
 async function resolveLineOverrides(lines, clientId) {
   const skus = [...new Set(lines.map((l) => l.sku))];
   if (skus.length === 0) return new Map();
@@ -80,7 +80,7 @@ async function resolveLineOverrides(lines, clientId) {
   const result = new Map();
   for (const product of products) {
     const clientSku = clientSkuByProductId.get(product.id);
-    if (clientSku) result.set(product.sku, { name: `${product.name} - ${clientSku}`, clientSku });
+    if (clientSku) result.set(product.sku, { name: `${product.name} - ${clientSku}` });
   }
   return result;
 }
