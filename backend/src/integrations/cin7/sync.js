@@ -62,6 +62,15 @@ async function resolveShippingAddress(store) {
 // the override always reflects Cin7's current master name, never a
 // stale copy. Best-effort throughout: any lookup failure just means
 // those lines go without an override, never fails the sync.
+//
+// Skips the append entirely when the Cin7 name already ends with that
+// exact client SKU -- true for any product whose client SKU was itself
+// backfilled FROM the name (see scripts/backfill-client-skus-from-
+// name.js), e.g. "Blue Tray 200 x 240mm - 9271173" already ends with
+// "9271173", so appending it again would just duplicate it. Only a
+// client SKU that differs from what's already in the name (typed by
+// hand, or from a client whose own SKU isn't Cin7's naming pattern)
+// actually needs appending.
 async function resolveLineOverrides(lines, clientId) {
   const skus = [...new Set(lines.map((l) => l.sku))];
   if (skus.length === 0) return new Map();
@@ -80,7 +89,9 @@ async function resolveLineOverrides(lines, clientId) {
   const result = new Map();
   for (const product of products) {
     const clientSku = clientSkuByProductId.get(product.id);
-    if (clientSku) result.set(product.sku, { name: `${product.name} - ${clientSku}` });
+    if (!clientSku) continue;
+    if (product.name.trim().endsWith(clientSku)) continue;
+    result.set(product.sku, { name: `${product.name} - ${clientSku}` });
   }
   return result;
 }
