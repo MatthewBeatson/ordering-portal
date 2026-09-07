@@ -30,11 +30,31 @@ async function list(req) {
   return data;
 }
 
+// A rule must only ever reference something actually on a portal --
+// enforced here, not just in the frontend's picker (which only
+// controls what a fresh page load offers; it can't stop a stale
+// cached page or a direct API call). Real incident that prompted this:
+// two Cin7 products share the exact same name/description (a genuine
+// Cin7-side near-duplicate, e.g. "M150HBUSWL" vs "M150HBUSWLPR" both
+// showing "...9271513") -- one was curated, one wasn't, and the
+// uncurated one got picked and saved before this check existed.
+async function assertOnPortal(productIds) {
+  if (productIds.length === 0) return;
+  const { data, error } = await supabaseAdmin.from('client_portal_products').select('product_id').in('product_id', productIds);
+  if (error) throw new ApiError(500, 'Failed to verify products are curated', error.message);
+  const curated = new Set((data || []).map((r) => r.product_id));
+  const notCurated = productIds.filter((id) => !curated.has(id));
+  if (notCurated.length > 0) {
+    throw new ApiError(400, `Product(s) not curated onto any client's portal: ${notCurated.join(', ')}`);
+  }
+}
+
 async function setForTray(req, trayProductId, insertProductIds) {
   requireStaff(req);
   if (!trayProductId || typeof trayProductId !== 'string') throw new ApiError(400, 'tray_product_id is required');
   if (!Array.isArray(insertProductIds)) throw new ApiError(400, 'insert_product_ids must be an array');
   if (insertProductIds.includes(trayProductId)) throw new ApiError(400, 'A tray cannot be its own insert');
+  await assertOnPortal([trayProductId, ...new Set(insertProductIds)]);
 
   const { error: deleteErr } = await supabaseAdmin.from('custom_group_rules').delete().eq('tray_product_id', trayProductId);
   if (deleteErr) throw new ApiError(500, 'Failed to update custom group rules', deleteErr.message);
