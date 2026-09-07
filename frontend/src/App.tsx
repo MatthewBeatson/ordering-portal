@@ -13,6 +13,7 @@ import Approvals from '@/pages/Approvals';
 import Account from '@/pages/Account';
 import ProductCuration from '@/pages/admin/ProductCuration';
 import ProductTaxonomy from '@/pages/admin/ProductTaxonomy';
+import CustomGrouping from '@/pages/admin/CustomGrouping';
 import Staff from '@/pages/admin/Staff';
 import ClientSettings from '@/pages/admin/ClientSettings';
 import DevSession from '@/pages/DevSession';
@@ -38,6 +39,7 @@ export default function App() {
             <Route element={<StaffOnlyRoute />}>
               <Route path="/admin/products" element={<ProductCuration />} />
               <Route path="/admin/product-taxonomy" element={<ProductTaxonomy />} />
+              <Route path="/admin/custom-grouping" element={<CustomGrouping />} />
             </Route>
 
             <Route element={<SuperAdminOnlyRoute />}>

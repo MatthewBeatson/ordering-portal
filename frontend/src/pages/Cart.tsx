@@ -8,6 +8,7 @@ import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useClientCatalog } from '@/lib/useClientCatalog';
 import { useResolvedLines } from '@/lib/useResolvedLines';
 import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
 import { money } from '@/lib/format';
@@ -38,10 +39,16 @@ export default function Cart() {
   // note; it's what QuickOrderBar computes unit_price from on add.
   const { tierNumber, showPricing, currency, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
   const { bySku } = useResolvedLines(cart.lines.map((l) => l.sku), currentStore?.client_id);
+  const customRules = useCustomGroupRules();
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
-    () => groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems ?? [], (l) => bySku.get(l.sku)?.product_types),
-    [cart.lines, groupMode, bySku]
+    () =>
+      groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems ?? [], (l) => bySku.get(l.sku)?.product_types, {
+        getId: (l) => bySku.get(l.sku)?.id,
+        getLabel: (l) => l.description ?? l.sku,
+        rules: customRules,
+      }),
+    [cart.lines, groupMode, bySku, customRules]
   );
 
   // Editing an existing pending order: fetch it once and hydrate the

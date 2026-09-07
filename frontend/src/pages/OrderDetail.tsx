@@ -9,6 +9,7 @@ import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useResolvedLines } from '@/lib/useResolvedLines';
 import { useClientCatalog } from '@/lib/useClientCatalog';
 import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { money, dateTime } from '@/lib/format';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
 import { Card } from '@/components/ui/card';
@@ -71,6 +72,7 @@ export default function OrderDetail() {
   const clientId = stores?.find((s) => s.id === order?.store_id)?.client_id;
   const { showPricing, currency } = useClientCatalog(clientId);
   const { bySku } = useResolvedLines((order?.order_lines ?? []).map((l) => l.sku), clientId);
+  const customRules = useCustomGroupRules();
   const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
     () =>
@@ -78,9 +80,14 @@ export default function OrderDetail() {
         order?.order_lines ?? [],
         groupMode,
         (l) => bySku.get(l.sku)?.display_systems ?? [],
-        (l) => bySku.get(l.sku)?.product_types
+        (l) => bySku.get(l.sku)?.product_types,
+        {
+          getId: (l) => bySku.get(l.sku)?.id,
+          getLabel: (l) => l.description ?? l.sku,
+          rules: customRules,
+        }
       ),
-    [order, groupMode, bySku]
+    [order, groupMode, bySku, customRules]
   );
 
   if (isLoading) {

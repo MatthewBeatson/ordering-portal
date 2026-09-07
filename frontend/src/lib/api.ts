@@ -219,6 +219,25 @@ export const productTaxonomyApi = {
   remove: (kind: TaxonomyKind, id: string) => request<void>('DELETE', `/product-taxonomy/${kind}/${id}`),
 };
 
+export interface CustomGroupRuleRow {
+  id: string;
+  tray_product_id: string;
+  insert_product_id: string;
+  display_order: number;
+  tray: { id: string; sku: string; name: string };
+  insert: { id: string; sku: string; name: string };
+}
+
+export const customGroupRulesApi = {
+  list: () => request<{ rows: CustomGroupRuleRow[] }>('GET', '/custom-group-rules').then((r) => r.rows),
+  // Full replace for one tray's ordered insert list.
+  setForTray: (trayProductId: string, insertProductIds: string[]) =>
+    request<{ tray_product_id: string; insert_product_ids: string[] }>('PUT', `/custom-group-rules/${trayProductId}`, {
+      insert_product_ids: insertProductIds,
+    }),
+  removeTray: (trayProductId: string) => request<void>('DELETE', `/custom-group-rules/${trayProductId}`),
+};
+
 export interface ClientProductAttributeOverrideInput {
   jewellery_count: number | null;
   product_type_id: string | null;

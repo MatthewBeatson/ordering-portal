@@ -16,6 +16,7 @@ import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
 
@@ -164,11 +165,13 @@ export default function Catalog() {
   // display system", but "Type" is dropped under "by product type" --
   // that view already groups by type, so a type filter on top would be
   // redundant. Jewellery held / Colour still filter (not just group) in
-  // either mode.
-  const visibleFacets = React.useMemo(
-    () => (groupMode === 'display' ? FACETS : FACETS.filter((f) => f.key !== 'productType')),
-    [groupMode]
-  );
+  // either mode. None apply under "custom" -- that mode is a fixed set
+  // of staff-defined tray/insert pairs, not a facet at all, and
+  // filtering on top of it would just fragment the curated groups.
+  const visibleFacets = React.useMemo(() => {
+    if (groupMode === 'custom') return [];
+    return groupMode === 'display' ? FACETS : FACETS.filter((f) => f.key !== 'productType');
+  }, [groupMode]);
 
   // A row matches if it satisfies every active, currently-visible facet
   // except the one named in `excludeKey` (pass null to apply all of
@@ -233,12 +236,20 @@ export default function Catalog() {
     });
   }
 
+  const customRules = useCustomGroupRules();
+
   // Two-level grouping for "by display system": display system -> product
-  // type. For "by product type": a single level, product type only.
-  // Shared with Cart/OrderDetail -- see lib/groupProducts.ts.
+  // type. For "by product type": a single level, product type only. For
+  // "custom": staff-defined tray/insert pairs (030). Shared with
+  // Cart/OrderDetail -- see lib/groupProducts.ts.
   const groups = React.useMemo(
-    () => groupProducts(filtered, groupMode, (p) => p.display_systems, (p) => p.product_types),
-    [filtered, groupMode]
+    () =>
+      groupProducts(filtered, groupMode, (p) => p.display_systems, (p) => p.product_types, {
+        getId: (p) => p.id,
+        getLabel: (p) => p.name,
+        rules: customRules,
+      }),
+    [filtered, groupMode, customRules]
   );
 
   function handleAdd(p: ProductRow) {
