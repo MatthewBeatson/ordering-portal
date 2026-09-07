@@ -15,7 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
-import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import type { DisplaySystem } from '@/lib/types';
 import { Search, ShoppingCart } from 'lucide-react';
@@ -40,7 +40,12 @@ const FACETS: { key: FacetKey; label: string; getRef: (p: ProductRow) => FacetRe
 export default function Catalog() {
   const cart = useCart();
   const { data: stores, isLoading: storesLoading } = useMyStores();
-  const { imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
+  const {
+    imageSizePreference: imageSize,
+    setImageSizePreference: setImageSize,
+    catalogGroupMode: groupMode,
+    setCatalogGroupMode: setGroupMode,
+  } = useAuth();
   const showImages = imageSize !== 'hide';
 
   // Two-way link with the shared "active client" (see
@@ -99,7 +104,6 @@ export default function Catalog() {
   const { tierNumber, showPricing, currency, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
 
   const [search, setSearch] = React.useState('');
-  const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   // Multi-select (028 -- a product can belong to more than one display
   // system), same shape/pattern as the three FACETS below: OR-matched,
   // a product matches if it has ANY of the selected systems among its

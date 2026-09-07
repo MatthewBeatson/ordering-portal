@@ -7,7 +7,7 @@ import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useClientCatalog } from '@/lib/useClientCatalog';
 import { useResolvedLines } from '@/lib/useResolvedLines';
-import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
@@ -30,7 +30,12 @@ export default function Cart() {
   const [error, setError] = React.useState<string | null>(null);
   // Shared, per-user-persisted preference (see AuthContext) -- same
   // full hide/small/large cycle as Catalog/Order Detail now.
-  const { imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
+  const {
+    imageSizePreference: imageSize,
+    setImageSizePreference: setImageSize,
+    cartGroupMode: groupMode,
+    setCartGroupMode: setGroupMode,
+  } = useAuth();
   const showImages = imageSize !== 'hide';
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
@@ -40,7 +45,6 @@ export default function Cart() {
   const { tierNumber, showPricing, currency, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
   const { bySku } = useResolvedLines(cart.lines.map((l) => l.sku), currentStore?.client_id);
   const customRules = useCustomGroupRules();
-  const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
     () =>
       groupProducts(cart.lines, groupMode, (l) => bySku.get(l.sku)?.display_systems ?? [], (l) => bySku.get(l.sku)?.product_types, {

@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { setMfaRequiredHandler, type MfaRequiredCode } from './mfaSignal';
+import type { GroupMode } from './groupProducts';
 
 const MFA_REVERIFY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -35,6 +36,13 @@ interface AuthState {
   /** Catalog/Cart/OrderDetail's shared image-size toggle -- persisted per-user (see 021_user_image_size_preference.sql) so it's the same on next login, any device. 'small' until the real value loads. */
   imageSizePreference: 'hide' | 'small' | 'large';
   setImageSizePreference: (v: 'hide' | 'small' | 'large') => void;
+  /** The "By display system"/"By product type"/"Custom" grouping toggle, persisted per-user PER PAGE (031_user_group_mode_preference.sql) -- each of the three pages remembers its own last-used mode independently, same next-login-any-device persistence as image size. 'display' until the real value loads. */
+  catalogGroupMode: GroupMode;
+  setCatalogGroupMode: (v: GroupMode) => void;
+  cartGroupMode: GroupMode;
+  setCartGroupMode: (v: GroupMode) => void;
+  orderDetailGroupMode: GroupMode;
+  setOrderDetailGroupMode: (v: GroupMode) => void;
 }
 
 const AuthContext = React.createContext<AuthState | undefined>(undefined);
@@ -50,6 +58,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mfaRequired, setMfaRequired] = React.useState<MfaRequiredCode | null>(null);
   const [companyName, setCompanyName] = React.useState<string | null>(null);
   const [imageSizePreference, setImageSizePreferenceState] = React.useState<'hide' | 'small' | 'large'>('small');
+  const [catalogGroupMode, setCatalogGroupModeState] = React.useState<GroupMode>('display');
+  const [cartGroupMode, setCartGroupModeState] = React.useState<GroupMode>('display');
+  const [orderDetailGroupMode, setOrderDetailGroupModeState] = React.useState<GroupMode>('display');
 
   // Proactive check, only meaningful for staff -- best-effort: Supabase's
   // self-listFactors() doesn't reliably surface last_challenged_at, so
@@ -82,10 +93,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.from('users').select('is_portal_admin, is_super_admin').eq('id', userId).maybeSingle(),
       supabase.from('user_store_roles').select('store_id, role').eq('user_id', userId),
       supabase.from('user_client_roles').select('client_id, role').eq('user_id', userId),
-      supabase.from('user_preferences').select('image_size').eq('user_id', userId).maybeSingle(),
+      supabase
+        .from('user_preferences')
+        .select('image_size, catalog_group_mode, cart_group_mode, order_detail_group_mode')
+        .eq('user_id', userId)
+        .maybeSingle(),
     ]);
 
     if (prefsRow?.image_size) setImageSizePreferenceState(prefsRow.image_size as 'hide' | 'small' | 'large');
+    if (prefsRow?.catalog_group_mode) setCatalogGroupModeState(prefsRow.catalog_group_mode as GroupMode);
+    if (prefsRow?.cart_group_mode) setCartGroupModeState(prefsRow.cart_group_mode as GroupMode);
+    if (prefsRow?.order_detail_group_mode) setOrderDetailGroupModeState(prefsRow.order_detail_group_mode as GroupMode);
 
     const admin = userRow?.is_portal_admin === true;
     const superAdmin = userRow?.is_super_admin === true;
@@ -177,6 +195,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMfaRequired(null);
         setCompanyName(null);
         setImageSizePreferenceState('small');
+        setCatalogGroupModeState('display');
+        setCartGroupModeState('display');
+        setOrderDetailGroupModeState('display');
         setLoading(false);
       }
     });
@@ -217,6 +238,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [session]
   );
 
+  // Same optimistic-then-persist shape as setImageSizePreference, one
+  // per page since each remembers its own mode independently.
+  const setCatalogGroupMode = React.useCallback(
+    (v: GroupMode) => {
+      setCatalogGroupModeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, catalog_group_mode: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save catalog group mode preference:', error.message);
+        });
+    },
+    [session]
+  );
+  const setCartGroupMode = React.useCallback(
+    (v: GroupMode) => {
+      setCartGroupModeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, cart_group_mode: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save cart group mode preference:', error.message);
+        });
+    },
+    [session]
+  );
+  const setOrderDetailGroupMode = React.useCallback(
+    (v: GroupMode) => {
+      setOrderDetailGroupModeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, order_detail_group_mode: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save order detail group mode preference:', error.message);
+        });
+    },
+    [session]
+  );
+
   const canApprove = React.useCallback(
     (storeId: string) => {
       if (isPortalAdmin) return true;
@@ -249,6 +315,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshMfaStatus,
     imageSizePreference,
     setImageSizePreference,
+    catalogGroupMode,
+    setCatalogGroupMode,
+    cartGroupMode,
+    setCartGroupMode,
+    orderDetailGroupMode,
+    setOrderDetailGroupMode,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

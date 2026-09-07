@@ -8,7 +8,7 @@ import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useResolvedLines } from '@/lib/useResolvedLines';
 import { useClientCatalog } from '@/lib/useClientCatalog';
-import { groupProducts, type GroupMode } from '@/lib/groupProducts';
+import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { money, dateTime } from '@/lib/format';
 import { OrderStatusBadge } from '@/components/OrderStatusBadge';
@@ -22,7 +22,14 @@ import { RefreshCw, Pencil } from 'lucide-react';
 
 export default function OrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
-  const { canApprove, isPortalAdmin, imageSizePreference: imageSize, setImageSizePreference: setImageSize } = useAuth();
+  const {
+    canApprove,
+    isPortalAdmin,
+    imageSizePreference: imageSize,
+    setImageSizePreference: setImageSize,
+    orderDetailGroupMode: groupMode,
+    setOrderDetailGroupMode: setGroupMode,
+  } = useAuth();
   const cart = useCart();
   const { data: stores } = useMyStores();
   const navigate = useNavigate();
@@ -73,7 +80,6 @@ export default function OrderDetail() {
   const { showPricing, currency } = useClientCatalog(clientId);
   const { bySku } = useResolvedLines((order?.order_lines ?? []).map((l) => l.sku), clientId);
   const customRules = useCustomGroupRules();
-  const [groupMode, setGroupMode] = React.useState<GroupMode>('display');
   const groups = React.useMemo(
     () =>
       groupProducts(
