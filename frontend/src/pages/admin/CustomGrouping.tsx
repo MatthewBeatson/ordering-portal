@@ -231,7 +231,11 @@ export default function CustomGrouping() {
             {rulesByTray.some((r) => r.tray.id === editing.tray.id) && (
               <Button
                 variant="ghost"
-                onClick={() => removeRule.mutate(editing.tray.id)}
+                onClick={() => {
+                  if (window.confirm(`Remove the custom grouping rule for "${editing.tray.name}"? This deletes all ${editing.inserts.length} insert pairing(s) for this tray -- it won't undo, though you can always rebuild it.`)) {
+                    removeRule.mutate(editing.tray.id);
+                  }
+                }}
                 disabled={removeRule.isPending}
                 className="text-[var(--danger)]"
               >
