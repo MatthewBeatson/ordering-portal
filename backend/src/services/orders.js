@@ -301,10 +301,30 @@ async function listOrders(req) {
     syncByOrderId = new Map((syncs || []).map((s) => [s.order_id, s]));
   }
 
+  // Same one-batched-query-per-page shape as inventory_sync above --
+  // getOrder always included lines, but this list endpoint never did,
+  // so every consumer relying on order.order_lines (line counts,
+  // Approvals' expandable detail rows) silently saw nothing.
+  let linesByOrderId = new Map();
+  if (data.length > 0) {
+    const { data: lines } = await supabaseAdmin
+      .from('order_lines')
+      .select('*')
+      .in(
+        'order_id',
+        data.map((o) => o.id)
+      );
+    for (const l of lines || []) {
+      if (!linesByOrderId.has(l.order_id)) linesByOrderId.set(l.order_id, []);
+      linesByOrderId.get(l.order_id).push(l);
+    }
+  }
+
   return {
     orders: data.map((o) => {
       const sanitized = sanitizeOrder(o, req.roles.isPortalAdmin);
       if (req.roles.isPortalAdmin) sanitized.inventory_sync = syncByOrderId.get(o.id) || null;
+      sanitized.order_lines = linesByOrderId.get(o.id) || [];
       return sanitized;
     }),
     total: count,
