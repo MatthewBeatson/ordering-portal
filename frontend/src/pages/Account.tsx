@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Check, Plus, Download, Upload } from 'lucide-react';
+import { SearchCombobox } from '@/components/SearchCombobox';
 import type { ClientAddress } from '@/lib/types';
 import { parseCsv, downloadCsv } from '@/lib/csv';
+import { formatAddress } from '@/lib/format';
 
 // Client-admins and Shonrei staff manage store reference numbers --
 // and now whole stores -- directly here instead of needing Supabase
@@ -248,21 +250,23 @@ function ClientStoreGroup({
                         className="h-8 max-w-[10rem]"
                       />
                     </td>
-                    <td className="px-2 py-2">
-                      <select
-                        className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                        value={s.client_address_id ?? ''}
-                        disabled={saveAddress.isPending && saveAddress.variables?.id === s.id}
-                        onChange={(e) => saveAddress.mutate({ id: s.id, clientAddressId: e.target.value || null })}
-                      >
-                        <option value="">Use client default</option>
-                        {(clientAddresses ?? []).map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {[a.line1, a.city].filter(Boolean).join(', ')}
-                            {a.is_default ? ' (default)' : ''}
-                          </option>
-                        ))}
-                      </select>
+                    <td className="min-w-[16rem] px-2 py-2">
+                      {(() => {
+                        const current = clientAddresses?.find((a) => a.id === s.client_address_id);
+                        const options = [
+                          { id: '', label: 'Use client default' },
+                          ...(clientAddresses ?? []).map((a) => ({ id: a.id, label: formatAddress(a) + (a.is_default ? ' (default)' : '') })),
+                        ];
+                        return (
+                          <SearchCombobox
+                            options={options}
+                            initialQuery={current ? formatAddress(current) + (current.is_default ? ' (default)' : '') : 'Use client default'}
+                            onSelect={(o) => saveAddress.mutate({ id: s.id, clientAddressId: o.id || null })}
+                            placeholder="Search address..."
+                            disabled={saveAddress.isPending && saveAddress.variables?.id === s.id}
+                          />
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-2 text-right">
                       {savedId === s.id ? (
@@ -364,21 +368,23 @@ function BuyerShippingDefaults({ clientId, addresses }: { clientId: string; addr
               <td className="px-2 py-2 text-xs text-[var(--muted-foreground)]">
                 {u.client_admin ? 'Client admin' : u.stores.map((s) => s.store_name).filter(Boolean).join(', ') || 'Buyer'}
               </td>
-              <td className="px-2 py-2">
-                <select
-                  className="h-8 w-full max-w-sm rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                  value={u.default_shipping_address_id ?? ''}
-                  disabled={setDefault.isPending && setDefault.variables?.userId === u.id}
-                  onChange={(e) => setDefault.mutate({ userId: u.id, addressId: e.target.value || null })}
-                >
-                  <option value="">No default (use store/client default)</option>
-                  {addresses.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {[a.line1, a.city].filter(Boolean).join(', ')}
-                      {a.is_default ? ' (client default)' : ''}
-                    </option>
-                  ))}
-                </select>
+              <td className="min-w-[16rem] px-2 py-2">
+                {(() => {
+                  const current = addresses.find((a) => a.id === u.default_shipping_address_id);
+                  const options = [
+                    { id: '', label: 'No default (use store/client default)' },
+                    ...addresses.map((a) => ({ id: a.id, label: formatAddress(a) + (a.is_default ? ' (client default)' : '') })),
+                  ];
+                  return (
+                    <SearchCombobox
+                      options={options}
+                      initialQuery={current ? formatAddress(current) + (current.is_default ? ' (client default)' : '') : 'No default (use store/client default)'}
+                      onSelect={(o) => setDefault.mutate({ userId: u.id, addressId: o.id || null })}
+                      placeholder="Search address..."
+                      disabled={setDefault.isPending && setDefault.variables?.userId === u.id}
+                    />
+                  );
+                })()}
               </td>
             </tr>
           ))}

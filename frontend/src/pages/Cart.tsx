@@ -11,7 +11,7 @@ import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { supabase } from '@/lib/supabase';
 import { ordersApi } from '@/lib/api';
-import { money } from '@/lib/format';
+import { money, formatAddress } from '@/lib/format';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
@@ -19,8 +19,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
-import type { ClientAddress, Store } from '@/lib/types';
-import { Trash2, MapPin, Store as StoreIcon, Pencil, X, Search } from 'lucide-react';
+import { SearchCombobox } from '@/components/SearchCombobox';
+import type { ClientAddress } from '@/lib/types';
+import { Trash2, MapPin, Store as StoreIcon, Pencil, X } from 'lucide-react';
 
 export default function Cart() {
   const cart = useCart();
@@ -104,10 +105,8 @@ export default function Cart() {
   });
   // Self-service read (own row only) -- the per-LOGIN default shipping
   // address (032), staff-assigned (see clients.js's
-  // setUserDefaultShippingAddress). Confirmed with the client
-  // 2026-09-09: this wins over a store's own assignment, since in
-  // practice one login often orders on behalf of many different store
-  // numbers, all wanting the same head-office destination.
+  // setUserDefaultShippingAddress). Falls back further to the client's
+  // own Cin7-flagged default address.
   const { data: userDefaultAddressId } = useQuery({
     queryKey: ['user-default-shipping-address', session?.user.id],
     queryFn: async () => {
@@ -121,14 +120,18 @@ export default function Cart() {
     },
     enabled: !!session,
   });
-  // A store's own assigned address (027, set in Account) is the next
-  // fallback -- Cin7 has no "store" concept, so this was previously the
-  // only way an order could ship somewhere other than the client's
-  // default. Falls back further to the client's own Cin7-flagged
-  // default address, same as before 027/032.
+  // The ORDER store's own assigned address (027, set in Account) wins
+  // once one's picked -- confirmed with the client 2026-09-09: picking
+  // a store on this page should prefill whatever ship-to address is
+  // set for it on the Account page. Keyed off orderStore (the picked
+  // order store), not currentStore (which only reflects whichever
+  // store's catalog is being browsed) -- before a store's picked, or
+  // if the picked one has nothing assigned, falls through to the
+  // ordering user's own personal default, then the client's own
+  // Cin7-flagged default.
   const userDefaultAddress = userDefaultAddressId ? addresses?.find((a) => a.id === userDefaultAddressId) : undefined;
-  const assignedAddress = currentStore?.client_address_id ? addresses?.find((a) => a.id === currentStore.client_address_id) : undefined;
-  const resolvedDefaultAddress = userDefaultAddress ?? assignedAddress ?? addresses?.find((a) => a.is_default) ?? addresses?.[0];
+  const assignedAddress = orderStore?.client_address_id ? addresses?.find((a) => a.id === orderStore.client_address_id) : undefined;
+  const resolvedDefaultAddress = assignedAddress ?? userDefaultAddress ?? addresses?.find((a) => a.is_default) ?? addresses?.[0];
 
   // Per-order override (032) -- pre-selected from the resolved default,
   // but the buyer can pick any of this client's synced addresses
@@ -317,7 +320,11 @@ export default function Cart() {
             </button>
           </div>
         ) : (
-          <StoreSearchPicker stores={storesForClient} onPick={setOrderStoreId} />
+          <SearchCombobox
+            options={storesForClient.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
+            onSelect={(o) => setOrderStoreId(o.id)}
+            placeholder="Search store number or name, e.g. PR#429..."
+          />
         )}
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           Which store this order is placed for -- sets the order's heading here and the store number in the Cin7 reference
@@ -331,18 +338,14 @@ export default function Cart() {
             <MapPin className="h-4 w-4 text-[var(--muted-foreground)]" />
             Delivery address
           </div>
-          <select
-            className="w-full max-w-md rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
-            value={selectedAddressId ?? ''}
-            onChange={(e) => setSelectedAddressId(e.target.value || null)}
-          >
-            {addresses.map((a) => (
-              <option key={a.id} value={a.id}>
-                {[a.line1, a.line2, a.city, a.state, a.postcode, a.country].filter(Boolean).join(', ')}
-                {a.id === resolvedDefaultId ? ' (default)' : ''}
-              </option>
-            ))}
-          </select>
+          <div className="max-w-md">
+            <SearchCombobox
+              options={addresses.map((a) => ({ id: a.id, label: formatAddress(a) + (a.id === resolvedDefaultId ? ' (default)' : '') }))}
+              onSelect={(o) => setSelectedAddressId(o.id)}
+              initialQuery={selectedAddress ? formatAddress(selectedAddress) + (selectedAddress.id === resolvedDefaultId ? ' (default)' : '') : ''}
+              placeholder="Search delivery address..."
+            />
+          </div>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             {selectedAddress?.id === userDefaultAddress?.id && userDefaultAddress
               ? 'Your own default shipping address.'
@@ -380,50 +383,6 @@ export default function Cart() {
         </Button>
       </div>
         </>
-      )}
-    </div>
-  );
-}
-
-// Search-as-you-type over every store under this cart's client --
-// deliberately not a plain <select>, since a real client can have
-// hundreds of stores (see 2026-09-09 discussion). Matches on either
-// store_number or name; no result shown until the buyer actually
-// types something, since there's no sensible default to fall back to.
-function StoreSearchPicker({ stores, onPick }: { stores: Store[]; onPick: (id: string) => void }) {
-  const [query, setQuery] = React.useState('');
-  const q = query.trim().toLowerCase();
-  const matches = q ? stores.filter((s) => (s.store_number ?? '').toLowerCase().includes(q) || s.name.toLowerCase().includes(q)).slice(0, 8) : [];
-
-  return (
-    <div className="relative max-w-md">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search store number or name, e.g. PR#429..."
-          className="h-9 pl-8"
-        />
-      </div>
-      {q && (
-        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] shadow-lg">
-          {matches.length === 0 && <li className="px-3 py-2 text-xs text-[var(--muted-foreground)]">No matching store.</li>}
-          {matches.map((s) => (
-            <li key={s.id}>
-              <button
-                onClick={() => {
-                  onPick(s.id);
-                  setQuery('');
-                }}
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--accent-muted)]"
-              >
-                {s.store_number && <span className="font-mono text-xs text-[var(--muted-foreground)]">{s.store_number}</span>}
-                <span>{s.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

@@ -15,6 +15,13 @@ export function money(n: number | null | undefined, currency: string = 'NZD') {
   return `${symbol}${n.toFixed(2)}`;
 }
 
+// Shared by Cart and Account's address selectors (both search over the
+// same client_addresses shape) so the display text is identical
+// everywhere an address gets listed.
+export function formatAddress(a: { line1: string; line2: string | null; city: string | null; state: string | null; postcode: string | null; country: string | null }) {
+  return [a.line1, a.line2, a.city, a.state, a.postcode, a.country].filter(Boolean).join(', ');
+}
+
 export function dateTime(iso: string | null | undefined) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-NZ', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
