@@ -30,6 +30,9 @@ export interface Order {
   shipped_source: string | null;
   created_at: string;
   updated_at: string;
+  // Per-order shipping address override (032) -- null means "use the
+  // resolved default at sync time" (see sync.js's resolveShippingAddress).
+  shipping_client_address_id: string | null;
   order_lines?: OrderLine[];
   // Staff-only -- present only when the signed-in user is_portal_admin
   // (see sanitizeOrder in backend/src/services/orders.js). null means

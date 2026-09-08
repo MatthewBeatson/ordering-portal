@@ -31,6 +31,7 @@ export default function Cart() {
   // Shared, per-user-persisted preference (see AuthContext) -- same
   // full hide/small/large cycle as Catalog/Order Detail now.
   const {
+    session,
     imageSizePreference: imageSize,
     setImageSizePreference: setImageSize,
     cartGroupMode: groupMode,
@@ -70,6 +71,7 @@ export default function Cart() {
     if (!editingOrder || hydratedRef.current === editingOrder.id) return;
     hydratedRef.current = editingOrder.id;
     setNotes(editingOrder.notes ?? '');
+    if (editingOrder.shipping_client_address_id) setSelectedAddressId(editingOrder.shipping_client_address_id);
     for (const line of editingOrder.order_lines ?? []) {
       cart.addLine({ sku: line.sku, description: line.description ?? undefined, quantity: line.quantity, unit_price: line.unit_price ?? undefined });
     }
@@ -85,22 +87,57 @@ export default function Cart() {
     },
     enabled: !!currentStore,
   });
-  // A store's own assigned address (027, set in Account) wins if
-  // present -- Cin7 has no "store" concept, so this is the only way an
-  // order can ship somewhere other than the client's default. Falls
-  // back to the client's default address, same as before 027.
+  // Self-service read (own row only) -- the per-LOGIN default shipping
+  // address (032), staff-assigned (see clients.js's
+  // setUserDefaultShippingAddress). Confirmed with the client
+  // 2026-09-09: this wins over a store's own assignment, since in
+  // practice one login often orders on behalf of many different store
+  // numbers, all wanting the same head-office destination.
+  const { data: userDefaultAddressId } = useQuery({
+    queryKey: ['user-default-shipping-address', session?.user.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('default_shipping_address_id')
+        .eq('user_id', session!.user.id)
+        .maybeSingle();
+      if (error) throw error;
+      return (data?.default_shipping_address_id as string | null) ?? null;
+    },
+    enabled: !!session,
+  });
+  // A store's own assigned address (027, set in Account) is the next
+  // fallback -- Cin7 has no "store" concept, so this was previously the
+  // only way an order could ship somewhere other than the client's
+  // default. Falls back further to the client's own Cin7-flagged
+  // default address, same as before 027/032.
+  const userDefaultAddress = userDefaultAddressId ? addresses?.find((a) => a.id === userDefaultAddressId) : undefined;
   const assignedAddress = currentStore?.client_address_id ? addresses?.find((a) => a.id === currentStore.client_address_id) : undefined;
-  const defaultAddress = assignedAddress ?? addresses?.find((a) => a.is_default) ?? addresses?.[0];
-  const alternateAddresses = (addresses ?? []).filter((a) => a.id !== defaultAddress?.id);
+  const resolvedDefaultAddress = userDefaultAddress ?? assignedAddress ?? addresses?.find((a) => a.is_default) ?? addresses?.[0];
+
+  // Per-order override (032) -- pre-selected from the resolved default,
+  // but the buyer can pick any of this client's synced addresses
+  // instead for one specific order without changing their standing
+  // default. Resets to the (possibly newly loaded) resolved default
+  // whenever the store changes or that resolution itself changes;
+  // otherwise left alone so a manual pick isn't clobbered by unrelated
+  // re-renders.
+  const [selectedAddressId, setSelectedAddressId] = React.useState<string | null>(null);
+  const resolvedDefaultId = resolvedDefaultAddress?.id ?? null;
+  React.useEffect(() => {
+    setSelectedAddressId(resolvedDefaultId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStore?.id, resolvedDefaultId]);
+  const selectedAddress = addresses?.find((a) => a.id === selectedAddressId);
 
   const submit = useMutation({
     mutationFn: () => {
       if (!cart.storeId) throw new Error('No store selected.');
       const lines = cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
       if (cart.editingOrderId) {
-        return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines });
+        return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
       }
-      return ordersApi.create({ store_id: cart.storeId, notes: notes || undefined, lines });
+      return ordersApi.create({ store_id: cart.storeId, notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
     },
     onSuccess: (order) => {
       const wasEditing = !!cart.editingOrderId;
@@ -248,20 +285,32 @@ export default function Cart() {
         </Card>
       )}
 
-      {defaultAddress && (
+      {addresses && addresses.length > 0 && (
         <Card className="p-4">
-          <div className="mb-1 flex items-center gap-1.5 text-sm font-medium">
+          <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
             <MapPin className="h-4 w-4 text-[var(--muted-foreground)]" />
             Delivery address
           </div>
-          <p className="text-sm text-[var(--muted-foreground)]">
-            {[defaultAddress.line1, defaultAddress.line2, defaultAddress.city, defaultAddress.state, defaultAddress.postcode, defaultAddress.country]
-              .filter(Boolean)
-              .join(', ')}
-          </p>
+          <select
+            className="w-full max-w-md rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
+            value={selectedAddressId ?? ''}
+            onChange={(e) => setSelectedAddressId(e.target.value || null)}
+          >
+            {addresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {[a.line1, a.line2, a.city, a.state, a.postcode, a.country].filter(Boolean).join(', ')}
+                {a.id === resolvedDefaultId ? ' (default)' : ''}
+              </option>
+            ))}
+          </select>
           <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-            {assignedAddress ? "This store's assigned address (set in Account)." : "This client's default address."}
-            {alternateAddresses.length > 0 && ' Picking a different one per order isn\'t available yet.'}
+            {selectedAddress?.id === userDefaultAddress?.id && userDefaultAddress
+              ? 'Your own default shipping address.'
+              : selectedAddress?.id === assignedAddress?.id && assignedAddress
+                ? "This store's assigned address (set in Account)."
+                : selectedAddress?.id === resolvedDefaultId
+                  ? "This client's default address."
+                  : 'Overriding the default for this order only.'}
           </p>
         </Card>
       )}

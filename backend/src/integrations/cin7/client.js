@@ -55,11 +55,14 @@ async function fetchFullSale(saleId) {
   return res.ok ? res.body : null;
 }
 
-// shippingAddress is a plain {Line1, Line2, City, State, Postcode,
-// Country} object -- resolving WHICH address that is (a store's
-// matched Cin7 address vs. its pinned fallback fields) is sync.js's
-// job, not this file's; client.js stays a pure Cin7 HTTP layer.
-async function createSaleHeader(order, shippingAddress, client) {
+// shippingAddress/billingAddress are plain {Line1, Line2, City, State,
+// Postcode, Country} objects (Cin7's own Sale POST docs confirm both
+// fields share that identical shape) -- resolving WHICH address each
+// one is is sync.js's job, not this file's; client.js stays a pure
+// Cin7 HTTP layer. billingAddress is optional -- omitted entirely
+// (rather than sent as null/undefined) when sync.js couldn't resolve
+// one, so Cin7 falls back to whatever it would already do by default.
+async function createSaleHeader(order, shippingAddress, client, billingAddress) {
   return cin7Fetch('POST', '/Sale', {
     CustomerID: client.cin7_customer_id,
     SkipQuote: true,
@@ -73,6 +76,7 @@ async function createSaleHeader(order, shippingAddress, client) {
     // sibling column, 015_client_currency_rate.sql).
     CurrencyRate: client.cin7_currency_rate ?? 1,
     ShippingAddress: shippingAddress,
+    ...(billingAddress ? { BillingAddress: billingAddress } : {}),
   });
 }
 

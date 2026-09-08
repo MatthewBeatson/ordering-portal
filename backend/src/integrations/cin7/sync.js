@@ -13,32 +13,63 @@ const { buildSaleOrderLines } = require('./lines');
 
 // Fields we need before it's even worth calling Cin7. Failing fast here
 // beats sending a request we already know is malformed.
-// Resolves the address actually sent to Cin7 for this Sale. The
-// store's matched Cin7 address (stores.client_address_id, 027) wins
-// when assigned -- it's the client's own real Cin7 data, kept in sync.
-// Falls back to the store's pinned cin7_address_* fields (the only
-// thing that existed before 027, and still the one validateSyncable
-// requires) if nothing's assigned, or if the assigned address has
-// since vanished (e.g. removed in Cin7 and pruned by addressSync.js) --
-// never fails a sync over this, just falls through.
-async function resolveShippingAddress(store) {
-  if (store.client_address_id) {
-    const { data: address, error } = await supabaseAdmin
-      .from('client_addresses')
-      .select('line1, line2, city, state, postcode, country')
-      .eq('id', store.client_address_id)
-      .maybeSingle();
-    if (!error && address) {
-      return {
-        Line1: address.line1,
-        Line2: address.line2 || undefined,
-        City: address.city || undefined,
-        State: address.state || undefined,
-        Postcode: address.postcode || undefined,
-        Country: address.country || undefined,
-      };
-    }
+
+function addressRowToCin7Shape(address) {
+  return {
+    Line1: address.line1,
+    Line2: address.line2 || undefined,
+    City: address.city || undefined,
+    State: address.state || undefined,
+    Postcode: address.postcode || undefined,
+    Country: address.country || undefined,
+  };
+}
+
+async function fetchClientAddress(addressId) {
+  const { data, error } = await supabaseAdmin
+    .from('client_addresses')
+    .select('line1, line2, city, state, postcode, country')
+    .eq('id', addressId)
+    .maybeSingle();
+  return !error && data ? data : null;
+}
+
+// Resolves the SHIPPING address actually sent to Cin7 for this Sale.
+// Priority (confirmed with the client 2026-09-09, JPL-AU specifically,
+// but applied uniformly): (1) this order's own shipping_client_
+// address_id (032) -- a buyer's explicit per-order pick, e.g.
+// overriding their usual default for one delivery; (2) the ordering
+// user's own default_shipping_address_id (032) -- a PER-LOGIN default
+// (e.g. a QLD-based admin's login always defaults to Capalaba,
+// whichever store number they're ordering under -- not tied to the
+// store itself); (3) the store's own matched Cin7 address (stores.
+// client_address_id, 027) -- the original per-STORE model, still used
+// by clients not on the per-user-default pattern; (4) the store's
+// pinned cin7_address_* fields, the original fallback that predates
+// any of this and still the one validateSyncable requires. Never fails
+// a sync over a missing/vanished address at any step -- just falls
+// through to the next.
+async function resolveShippingAddress(order, store) {
+  if (order.shipping_client_address_id) {
+    const address = await fetchClientAddress(order.shipping_client_address_id);
+    if (address) return addressRowToCin7Shape(address);
   }
+
+  const { data: prefs } = await supabaseAdmin
+    .from('user_preferences')
+    .select('default_shipping_address_id')
+    .eq('user_id', order.requested_by)
+    .maybeSingle();
+  if (prefs?.default_shipping_address_id) {
+    const address = await fetchClientAddress(prefs.default_shipping_address_id);
+    if (address) return addressRowToCin7Shape(address);
+  }
+
+  if (store.client_address_id) {
+    const address = await fetchClientAddress(store.client_address_id);
+    if (address) return addressRowToCin7Shape(address);
+  }
+
   return {
     Line1: store.cin7_address_line1,
     Line2: store.cin7_address_line2 || undefined,
@@ -47,6 +78,27 @@ async function resolveShippingAddress(store) {
     Postcode: store.cin7_address_postcode || undefined,
     Country: store.cin7_address_country || undefined,
   };
+}
+
+// Resolves the BILLING address -- always the client's own default
+// Billing-type Cin7 address (client_addresses.type='Billing',
+// is_default=true), regardless of shipping destination or which
+// store/user placed the order (confirmed with the client: every JPL-AU
+// order, whatever brand -- PR/AC/GM -- always bills to the same Prouds
+// HQ billing address). Best-effort: returns null (BillingAddress
+// simply omitted from the Sale) if the client has no such address
+// synced, rather than failing the sync -- Cin7 has its own fallback
+// behavior for an omitted BillingAddress regardless.
+async function resolveBillingAddress(client) {
+  const { data: address, error } = await supabaseAdmin
+    .from('client_addresses')
+    .select('line1, line2, city, state, postcode, country')
+    .eq('client_id', client.id)
+    .eq('type', 'Billing')
+    .eq('is_default', true)
+    .maybeSingle();
+  if (error || !address) return null;
+  return addressRowToCin7Shape(address);
 }
 
 // Resolves each order line's CLIENT SKU (client_product_skus) by
@@ -236,8 +288,9 @@ async function syncOrderToCin7(order) {
         orderResBody = orderRes.body;
       }
     } else {
-      const shippingAddress = await resolveShippingAddress(store);
-      const saleRes = await cin7.createSaleHeader(fresh, shippingAddress, client);
+      const shippingAddress = await resolveShippingAddress(fresh, store);
+      const billingAddress = await resolveBillingAddress(client);
+      const saleRes = await cin7.createSaleHeader(fresh, shippingAddress, client, billingAddress);
       if (!saleRes.ok) {
         return recordFailed(fresh.id, cin7.cin7ErrorMessage(saleRes));
       }

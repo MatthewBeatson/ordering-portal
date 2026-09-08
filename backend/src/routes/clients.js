@@ -31,4 +31,20 @@ router.patch(
   })
 );
 
+router.get(
+  '/:id/users',
+  asyncHandler(async (req, res) => {
+    const users = await clientsService.listClientUsers(req, req.params.id);
+    res.json({ users });
+  })
+);
+
+router.patch(
+  '/:id/users/:userId/default-shipping-address',
+  asyncHandler(async (req, res) => {
+    const result = await clientsService.setUserDefaultShippingAddress(req, req.params.id, req.params.userId, req.body?.address_id ?? null);
+    res.json(result);
+  })
+);
+
 module.exports = router;

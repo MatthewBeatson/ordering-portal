@@ -64,11 +64,16 @@ export interface CreateOrderInput {
   store_id: string;
   notes?: string;
   lines: Array<{ sku: string; description?: string; quantity: number; unit_price?: number }>;
+  // Per-order shipping address override (032) -- omit/null to use the
+  // resolved default (ordering user's own default_shipping_address_id,
+  // else the store's/client's own default) at sync time instead.
+  shipping_client_address_id?: string | null;
 }
 
 export interface UpdateOrderInput {
   notes?: string;
   lines: Array<{ sku: string; description?: string; quantity: number; unit_price?: number }>;
+  shipping_client_address_id?: string | null;
 }
 
 export const ordersApi = {
@@ -196,10 +201,24 @@ export interface ManageableClient {
   name: string;
 }
 
+export interface ClientUser {
+  id: string;
+  email: string;
+  full_name: string | null;
+  client_admin: boolean;
+  stores: { store_id: string; store_name: string | null; role: string }[];
+  default_shipping_address_id: string | null;
+}
+
 export const clientsApi = {
   listManageable: () => request<{ clients: ManageableClient[] }>('GET', '/clients'),
   updateShowPricing: (id: string, showPricing: boolean) =>
     request<{ id: string; name: string; show_pricing: boolean }>('PATCH', `/clients/${id}/show-pricing`, { show_pricing: showPricing }),
+  listUsers: (clientId: string) => request<{ users: ClientUser[] }>('GET', `/clients/${clientId}/users`).then((r) => r.users),
+  setUserDefaultShippingAddress: (clientId: string, userId: string, addressId: string | null) =>
+    request<{ user_id: string; default_shipping_address_id: string | null }>('PATCH', `/clients/${clientId}/users/${userId}/default-shipping-address`, {
+      address_id: addressId,
+    }),
 };
 
 export type TaxonomyKind = 'types' | 'jewellery-types' | 'colours' | 'display-systems';

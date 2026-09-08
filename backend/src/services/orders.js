@@ -99,7 +99,7 @@ function validateCreateInput(body) {
 
   if (errors.length > 0) throw new ApiError(400, 'Invalid order payload', errors);
 
-  return { storeId, notes: body.notes ?? null, lines: body.lines };
+  return { storeId, notes: body.notes ?? null, lines: body.lines, shippingClientAddressId: body.shipping_client_address_id ?? null };
 }
 
 function validateUpdateInput(body) {
@@ -110,7 +110,23 @@ function validateUpdateInput(body) {
 
   if (errors.length > 0) throw new ApiError(400, 'Invalid order payload', errors);
 
-  return { notes: body.notes ?? null, lines: body.lines };
+  return { notes: body.notes ?? null, lines: body.lines, shippingClientAddressId: body.shipping_client_address_id ?? null };
+}
+
+// A client-supplied shipping_client_address_id must actually belong to
+// this store's own client -- otherwise one client's buyer could point
+// their order at another client's address purely by guessing a uuid.
+// null is always valid (means "use the resolved default at sync time,
+// not an explicit override" -- see sync.js's resolveShippingAddress).
+async function validateShippingAddress(shippingClientAddressId, clientId) {
+  if (!shippingClientAddressId) return;
+  const { data, error } = await supabaseAdmin
+    .from('client_addresses')
+    .select('id')
+    .eq('id', shippingClientAddressId)
+    .eq('client_id', clientId)
+    .maybeSingle();
+  if (error || !data) throw new ApiError(400, "shipping_client_address_id isn't a valid address for this client");
 }
 
 async function fetchOrder(orderId) {
@@ -159,7 +175,7 @@ async function findSkusNotCuratedForClient(clientId, skus) {
 }
 
 async function createOrder(req) {
-  const { storeId, notes, lines } = validateCreateInput(req.body);
+  const { storeId, notes, lines, shippingClientAddressId } = validateCreateInput(req.body);
 
   // Never trust a client-supplied store_id blindly -- check it against
   // this user's actual roles before touching the database.
@@ -176,9 +192,11 @@ async function createOrder(req) {
     throw new ApiError(400, "These SKUs aren't available on this client's portal", invalidSkus);
   }
 
+  await validateShippingAddress(shippingClientAddressId, store.client_id);
+
   const { data: order, error: orderErr } = await supabaseAdmin
     .from('orders')
-    .insert({ store_id: storeId, requested_by: req.user.id, status: 'pending', notes })
+    .insert({ store_id: storeId, requested_by: req.user.id, status: 'pending', notes, shipping_client_address_id: shippingClientAddressId })
     .select()
     .single();
 
@@ -219,7 +237,7 @@ async function createOrder(req) {
 // order_lines carries no state worth preserving across an edit (no
 // per-line audit trail today).
 async function updateOrder(req, orderId) {
-  const { notes, lines } = validateUpdateInput(req.body);
+  const { notes, lines, shippingClientAddressId } = validateUpdateInput(req.body);
   const order = await fetchOrder(orderId);
 
   if (order.status !== 'pending') {
@@ -236,6 +254,8 @@ async function updateOrder(req, orderId) {
   if (invalidSkus.length > 0) {
     throw new ApiError(400, "These SKUs aren't available on this client's portal", invalidSkus);
   }
+
+  await validateShippingAddress(shippingClientAddressId, store.client_id);
 
   const { error: deleteErr } = await supabaseAdmin.from('order_lines').delete().eq('order_id', orderId);
   if (deleteErr) throw new ApiError(500, 'Failed to update order lines', deleteErr.message);
@@ -254,7 +274,12 @@ async function updateOrder(req, orderId) {
     .select();
   if (insertErr) throw new ApiError(500, 'Failed to update order lines', insertErr.message);
 
-  const { data: updated, error: updateErr } = await supabaseAdmin.from('orders').update({ notes }).eq('id', orderId).select().single();
+  const { data: updated, error: updateErr } = await supabaseAdmin
+    .from('orders')
+    .update({ notes, shipping_client_address_id: shippingClientAddressId })
+    .eq('id', orderId)
+    .select()
+    .single();
   if (updateErr) throw new ApiError(500, 'Failed to update order', updateErr.message);
 
   await logEvent(orderId, req.user.id, 'edited', null);

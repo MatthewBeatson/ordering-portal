@@ -2,6 +2,7 @@ import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { storesApi, clientsApi, type ManageableStore } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { parseCsv, downloadCsv } from '@/lib/csv';
 // several stores, each needing its own number.
 export default function Account() {
   const queryClient = useQueryClient();
+  const { isPortalAdmin } = useAuth();
 
   const { data: clientsData, isLoading: clientsLoading, error: clientsError } = useQuery({
     queryKey: ['manageable-clients'],
@@ -68,6 +70,7 @@ export default function Account() {
             clientName={client.name}
             stores={stores.filter((s) => s.client_id === client.id)}
             onChanged={invalidate}
+            isPortalAdmin={isPortalAdmin}
           />
         ))
       )}
@@ -80,11 +83,13 @@ function ClientStoreGroup({
   clientName,
   stores,
   onChanged,
+  isPortalAdmin,
 }: {
   clientId: string;
   clientName: string;
   stores: ManageableStore[];
   onChanged: () => void;
+  isPortalAdmin: boolean;
 }) {
   const [edits, setEdits] = React.useState<Record<string, string>>({});
   const [savedId, setSavedId] = React.useState<string | null>(null);
@@ -297,7 +302,90 @@ function ClientStoreGroup({
           onCancel={() => setShowAddForm(false)}
         />
       )}
+
+      {isPortalAdmin && <BuyerShippingDefaults clientId={clientId} addresses={clientAddresses ?? []} />}
     </div>
+  );
+}
+
+// Staff-only (matches clients.js's requireStaff): assigns each of this
+// client's users their own PER-LOGIN default shipping address (032) --
+// confirmed with the client 2026-09-09, e.g. a QLD-based admin's login
+// always defaults to the QLD head office, whichever store number they
+// place an order under. Separate from the per-store assignment above --
+// this wins over it at sync time (see sync.js's resolveShippingAddress).
+// null/"No default" falls back to that store/client resolution instead.
+function BuyerShippingDefaults({ clientId, addresses }: { clientId: string; addresses: ClientAddress[] }) {
+  const queryClient = useQueryClient();
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['client-users', clientId],
+    queryFn: () => clientsApi.listUsers(clientId),
+  });
+
+  const setDefault = useMutation({
+    mutationFn: ({ userId, addressId }: { userId: string; addressId: string | null }) =>
+      clientsApi.setUserDefaultShippingAddress(clientId, userId, addressId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-users', clientId] }),
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="p-4">
+        <div className="flex h-16 items-center justify-center">
+          <Spinner className="h-5 w-5" />
+        </div>
+      </Card>
+    );
+  }
+
+  if (!users || users.length === 0) return null;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-[var(--border)] bg-[var(--muted)] px-4 py-2">
+        <div className="text-sm font-semibold">Buyer default shipping addresses</div>
+        <div className="text-xs text-[var(--muted-foreground)]">
+          Staff-only. Each login's own default shipping destination, regardless of which store number they order under --
+          wins over that store's own assigned address. Leave as "No default" to fall back to the store/client default instead.
+        </div>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
+            <th className="px-4 py-2 font-medium">User</th>
+            <th className="px-2 py-2 font-medium">Role</th>
+            <th className="px-2 py-2 font-medium">Default shipping address</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((u) => (
+            <tr key={u.id} className="border-b border-[var(--border)] last:border-0">
+              <td className="px-4 py-2">{u.full_name || u.email}</td>
+              <td className="px-2 py-2 text-xs text-[var(--muted-foreground)]">
+                {u.client_admin ? 'Client admin' : u.stores.map((s) => s.store_name).filter(Boolean).join(', ') || 'Buyer'}
+              </td>
+              <td className="px-2 py-2">
+                <select
+                  className="h-8 w-full max-w-sm rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                  value={u.default_shipping_address_id ?? ''}
+                  disabled={setDefault.isPending && setDefault.variables?.userId === u.id}
+                  onChange={(e) => setDefault.mutate({ userId: u.id, addressId: e.target.value || null })}
+                >
+                  <option value="">No default (use store/client default)</option>
+                  {addresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {[a.line1, a.city].filter(Boolean).join(', ')}
+                      {a.is_default ? ' (client default)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {setDefault.isError && <p className="px-4 py-2 text-sm text-[var(--danger)]">{(setDefault.error as Error).message}</p>}
+    </Card>
   );
 }
 
