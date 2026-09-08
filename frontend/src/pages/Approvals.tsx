@@ -8,6 +8,7 @@ import { dateTime } from '@/lib/format';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function Approvals() {
   const { canApprove } = useAuth();
@@ -16,6 +17,12 @@ export default function Approvals() {
   const storeName = (id: string) => stores?.find((s) => s.id === id)?.name ?? id;
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkResult, setBulkResult] = React.useState<string | null>(null);
+  // Accordion -- one order's lines expanded at a time, so reviewing a
+  // list works as "open, check the lines, confirm/reject, next" without
+  // ever leaving this page. Confirming/rejecting/collapsing the
+  // currently-open order clears this rather than leaving a stale
+  // expansion pointing at a row that's about to disappear from the list.
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['orders', 'pending-approvals'],
@@ -25,15 +32,25 @@ export default function Approvals() {
   const pendingApprovals = (data?.orders ?? []).filter((o) => canApprove(o.store_id));
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['orders'] });
-  const confirm = useMutation({ mutationFn: (id: string) => ordersApi.confirm(id), onSuccess: invalidate });
+  const confirm = useMutation({
+    mutationFn: (id: string) => ordersApi.confirm(id),
+    onSuccess: (_data, id) => {
+      setExpandedId((cur) => (cur === id ? null : cur));
+      invalidate();
+    },
+  });
   const reject = useMutation({
     mutationFn: (id: string) => ordersApi.reject(id, window.prompt('Reason for rejecting (optional):') || undefined),
-    onSuccess: invalidate,
+    onSuccess: (_data, id) => {
+      setExpandedId((cur) => (cur === id ? null : cur));
+      invalidate();
+    },
   });
   const bulkConfirm = useMutation({
     mutationFn: () => ordersApi.bulkConfirm([...selected]),
     onSuccess: (result) => {
       setSelected(new Set());
+      setExpandedId(null);
       const parts = [`${result.confirmed.length} confirmed`];
       if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
       setBulkResult(parts.join(', ') + '.');
@@ -84,7 +101,8 @@ export default function Approvals() {
           <table className="w-full text-sm">
             <thead>
               <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
-                <th className="w-10 px-4 py-2">
+                <th className="w-8 px-2 py-2"></th>
+                <th className="w-10 px-2 py-2">
                   <input type="checkbox" checked={selected.size === pendingApprovals.length} onChange={toggleSelectAll} />
                 </th>
                 <th className="px-2 py-2 font-medium">Reference</th>
@@ -95,31 +113,80 @@ export default function Approvals() {
               </tr>
             </thead>
             <tbody>
-              {pendingApprovals.map((order) => (
-                <tr key={order.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
-                  <td className="px-4 py-2">
-                    <input type="checkbox" checked={selected.has(order.id)} onChange={() => toggleSelected(order.id)} />
-                  </td>
-                  <td className="px-2 py-2">
-                    <Link to={`/orders/${order.id}`} className="font-medium text-[var(--accent)] hover:underline">
-                      {order.reference || order.id.slice(0, 8)}
-                    </Link>
-                  </td>
-                  <td className="px-2 py-2">{storeName(order.store_id)}</td>
-                  <td className="px-2 py-2">{order.order_lines?.length ?? '—'}</td>
-                  <td className="px-2 py-2 text-[var(--muted-foreground)]">{dateTime(order.created_at)}</td>
-                  <td className="px-4 py-2">
-                    <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="danger" onClick={() => reject.mutate(order.id)} disabled={reject.isPending || confirm.isPending}>
-                        Reject
-                      </Button>
-                      <Button size="sm" variant="primary" onClick={() => confirm.mutate(order.id)} disabled={reject.isPending || confirm.isPending}>
-                        Confirm
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {pendingApprovals.map((order) => {
+                const isExpanded = expandedId === order.id;
+                return (
+                  <React.Fragment key={order.id}>
+                    <tr className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
+                      <td className="px-2 py-2">
+                        <button
+                          onClick={() => setExpandedId((cur) => (cur === order.id ? null : order.id))}
+                          aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                          className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                        >
+                          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        </button>
+                      </td>
+                      <td className="px-2 py-2">
+                        <input type="checkbox" checked={selected.has(order.id)} onChange={() => toggleSelected(order.id)} />
+                      </td>
+                      <td className="px-2 py-2">
+                        <Link to={`/orders/${order.id}`} className="font-medium text-[var(--accent)] hover:underline">
+                          {order.reference || order.id.slice(0, 8)}
+                        </Link>
+                      </td>
+                      <td className="px-2 py-2">{storeName(order.store_id)}</td>
+                      <td className="px-2 py-2">{order.order_lines?.length ?? '—'}</td>
+                      <td className="px-2 py-2 text-[var(--muted-foreground)]">{dateTime(order.created_at)}</td>
+                      <td className="px-4 py-2">
+                        <div className="flex justify-end gap-2">
+                          <Button size="sm" variant="danger" onClick={() => reject.mutate(order.id)} disabled={reject.isPending || confirm.isPending}>
+                            Reject
+                          </Button>
+                          <Button size="sm" variant="primary" onClick={() => confirm.mutate(order.id)} disabled={reject.isPending || confirm.isPending}>
+                            Confirm
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-b border-[var(--border)] bg-[var(--muted)]/30 last:border-0">
+                        <td></td>
+                        <td colSpan={6} className="px-2 py-3">
+                          {order.notes && (
+                            <p className="mb-2 text-xs text-[var(--muted-foreground)]">
+                              <span className="font-medium text-[var(--foreground)]">Notes: </span>
+                              {order.notes}
+                            </p>
+                          )}
+                          {order.order_lines && order.order_lines.length > 0 ? (
+                            <table className="w-full max-w-xl text-xs">
+                              <thead>
+                                <tr className="text-left text-[var(--muted-foreground)]">
+                                  <th className="py-1 pr-3 font-medium">SKU</th>
+                                  <th className="py-1 pr-3 font-medium">Description</th>
+                                  <th className="py-1 font-medium">Qty</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {order.order_lines.map((line) => (
+                                  <tr key={line.id} className="border-t border-[var(--border)]">
+                                    <td className="py-1 pr-3 font-mono">{line.sku}</td>
+                                    <td className="py-1 pr-3">{line.description ?? '—'}</td>
+                                    <td className="py-1">{line.quantity}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="text-xs text-[var(--muted-foreground)]">No lines on this order.</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
           </table>
         </Card>
