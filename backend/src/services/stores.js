@@ -163,10 +163,13 @@ async function importAddressMatches(req, clientId, rows) {
 
 // A client-admin can only create a store under their OWN client(s) --
 // never trust a client-supplied client_id blindly, same reasoning as
-// checkStoreAccess elsewhere. cin7_address_line1 is required (not just
-// name/store_number) because sync.js refuses to sync any order for a
-// store that has no pinned address at all -- better to catch that at
-// creation than leave a store nobody can ever actually order through.
+// checkStoreAccess elsewhere. cin7_address_line1 is no longer required
+// (dropped 2026-09-09) -- confirmed with the client that a store's own
+// pinned address is barely used in practice now (shipping resolves via
+// the per-login default / per-order override / client default chain
+// instead, see sync.js's resolveShippingAddress and validateSyncable),
+// so forcing one just to create a store (e.g. bulk-adding many real
+// store numbers) was pure friction with no real benefit.
 async function createStore(req, input) {
   const { isPortalAdmin, clientRoles } = req.roles;
 
@@ -182,7 +185,6 @@ async function createStore(req, input) {
   if (!name) throw new ApiError(400, 'name is required');
 
   const line1 = typeof input?.cin7_address_line1 === 'string' ? input.cin7_address_line1.trim() : '';
-  if (!line1) throw new ApiError(400, 'An address (at least line 1) is required so orders for this store can sync to Cin7');
 
   const storeNumber = typeof input?.store_number === 'string' && input.store_number.trim() ? input.store_number.trim() : null;
 
@@ -192,7 +194,7 @@ async function createStore(req, input) {
       name,
       client_id: clientId,
       store_number: storeNumber,
-      cin7_address_line1: line1,
+      cin7_address_line1: line1 || null,
       cin7_address_line2: input?.cin7_address_line2 || null,
       cin7_address_city: input?.cin7_address_city || null,
       cin7_address_state: input?.cin7_address_state || null,

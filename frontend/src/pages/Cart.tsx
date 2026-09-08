@@ -19,8 +19,8 @@ import { Spinner } from '@/components/ui/spinner';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
-import type { ClientAddress } from '@/lib/types';
-import { Trash2, MapPin, Pencil, X } from 'lucide-react';
+import type { ClientAddress, Store } from '@/lib/types';
+import { Trash2, MapPin, Store as StoreIcon, Pencil, X, Search } from 'lucide-react';
 
 export default function Cart() {
   const cart = useCart();
@@ -41,6 +41,20 @@ export default function Cart() {
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
+  // Which store this ORDER is placed on behalf of -- decoupled from
+  // cart.storeId above, which only gets the buyer into this client's
+  // catalog/pricing context. Confirmed with the client 2026-09-09: one
+  // login often orders on behalf of many different store numbers, so
+  // this always starts unselected -- no default -- forcing a
+  // deliberate choice each time rather than silently reusing whichever
+  // store was last browsed. Feeds the portal-side heading ("PR#659 -
+  // Green Hills") and, via stores.store_number, the Cin7
+  // CustomerReference at confirm time (orders.js's
+  // generateReferenceIfMissing) -- Cin7 itself never sees the store
+  // name, only the number + confirm date.
+  const [orderStoreId, setOrderStoreId] = React.useState<string | null>(null);
+  const storesForClient = stores?.filter((s) => s.client_id === currentStore?.client_id) ?? [];
+  const orderStore = storesForClient.find((s) => s.id === orderStoreId);
   // tierNumber stays real regardless of showPricing -- see Catalog.tsx's
   // note; it's what QuickOrderBar computes unit_price from on add.
   const { tierNumber, showPricing, currency, clientSkuByProduct, products } = useClientCatalog(currentStore?.client_id);
@@ -71,6 +85,7 @@ export default function Cart() {
     if (!editingOrder || hydratedRef.current === editingOrder.id) return;
     hydratedRef.current = editingOrder.id;
     setNotes(editingOrder.notes ?? '');
+    setOrderStoreId(editingOrder.store_id);
     if (editingOrder.shipping_client_address_id) setSelectedAddressId(editingOrder.shipping_client_address_id);
     for (const line of editingOrder.order_lines ?? []) {
       cart.addLine({ sku: line.sku, description: line.description ?? undefined, quantity: line.quantity, unit_price: line.unit_price ?? undefined });
@@ -132,12 +147,12 @@ export default function Cart() {
 
   const submit = useMutation({
     mutationFn: () => {
-      if (!cart.storeId) throw new Error('No store selected.');
+      if (!orderStoreId) throw new Error('Select which store this order is for.');
       const lines = cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
       if (cart.editingOrderId) {
         return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
       }
-      return ordersApi.create({ store_id: cart.storeId, notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
+      return ordersApi.create({ store_id: orderStoreId, notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
     },
     onSuccess: (order) => {
       const wasEditing = !!cart.editingOrderId;
@@ -216,16 +231,16 @@ export default function Cart() {
                   {sub.label}
                 </div>
               )}
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
                     {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
-                    <th className="px-2 py-2 font-medium">SKU</th>
-                    <th className="px-2 py-2 font-medium">Client SKU</th>
+                    <th className="w-32 px-2 py-2 font-medium">SKU</th>
+                    <th className="w-28 px-2 py-2 font-medium">Client SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
-                    <th className="px-2 py-2 font-medium">Qty</th>
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Line total ({currency})</th>}
+                    <th className="w-20 px-2 py-2 font-medium">Qty</th>
+                    {hasPricing && <th className="w-28 px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
+                    {hasPricing && <th className="w-28 px-2 py-2 text-right font-medium">Line total ({currency})</th>}
                     <th className="w-10 px-4 py-2"></th>
                   </tr>
                 </thead>
@@ -285,6 +300,31 @@ export default function Cart() {
         </Card>
       )}
 
+      <Card className="p-4">
+        <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+          <StoreIcon className="h-4 w-4 text-[var(--muted-foreground)]" />
+          Store
+        </div>
+        {isEditing ? (
+          <p className="text-sm font-medium">
+            {orderStore ? [orderStore.store_number, orderStore.name].filter(Boolean).join(' - ') : 'Unknown store'}
+          </p>
+        ) : orderStoreId ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{[orderStore?.store_number, orderStore?.name].filter(Boolean).join(' - ')}</span>
+            <button onClick={() => setOrderStoreId(null)} className="text-xs font-medium text-[var(--accent)] hover:underline">
+              Change
+            </button>
+          </div>
+        ) : (
+          <StoreSearchPicker stores={storesForClient} onPick={setOrderStoreId} />
+        )}
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          Which store this order is placed for -- sets the order's heading here and the store number in the Cin7 reference
+          once confirmed (Cin7 never sees the store name, only the number and confirm date).
+        </p>
+      </Card>
+
       {addresses && addresses.length > 0 && (
         <Card className="p-4">
           <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
@@ -335,11 +375,55 @@ export default function Cart() {
         <Button variant="ghost" onClick={() => cart.clear()} disabled={submit.isPending}>
           Clear {isEditing ? 'lines' : 'cart'}
         </Button>
-        <Button variant="primary" onClick={() => submit.mutate()} disabled={submit.isPending || !cart.storeId}>
+        <Button variant="primary" onClick={() => submit.mutate()} disabled={submit.isPending || !orderStoreId}>
           {submit.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : isEditing ? 'Save changes' : 'Submit order'}
         </Button>
       </div>
         </>
+      )}
+    </div>
+  );
+}
+
+// Search-as-you-type over every store under this cart's client --
+// deliberately not a plain <select>, since a real client can have
+// hundreds of stores (see 2026-09-09 discussion). Matches on either
+// store_number or name; no result shown until the buyer actually
+// types something, since there's no sensible default to fall back to.
+function StoreSearchPicker({ stores, onPick }: { stores: Store[]; onPick: (id: string) => void }) {
+  const [query, setQuery] = React.useState('');
+  const q = query.trim().toLowerCase();
+  const matches = q ? stores.filter((s) => (s.store_number ?? '').toLowerCase().includes(q) || s.name.toLowerCase().includes(q)).slice(0, 8) : [];
+
+  return (
+    <div className="relative max-w-md">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search store number or name, e.g. PR#429..."
+          className="h-9 pl-8"
+        />
+      </div>
+      {q && (
+        <ul className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] shadow-lg">
+          {matches.length === 0 && <li className="px-3 py-2 text-xs text-[var(--muted-foreground)]">No matching store.</li>}
+          {matches.map((s) => (
+            <li key={s.id}>
+              <button
+                onClick={() => {
+                  onPick(s.id);
+                  setQuery('');
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-[var(--accent-muted)]"
+              >
+                {s.store_number && <span className="font-mono text-xs text-[var(--muted-foreground)]">{s.store_number}</span>}
+                <span>{s.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

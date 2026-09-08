@@ -108,7 +108,13 @@ export default function OrderDetail() {
     return <Card className="p-6 text-sm text-[var(--danger)]">Couldn't load this order: {(error as Error)?.message ?? 'not found'}</Card>;
   }
 
-  const storeName = stores?.find((s) => s.id === order.store_id)?.name ?? order.store_id;
+  const orderStore = stores?.find((s) => s.id === order.store_id);
+  // Store number + name is the primary heading (e.g. "PR#659 - Green
+  // Hills") -- confirmed with the client 2026-09-09, this is what a
+  // buyer actually recognizes an order by, not its internal reference.
+  // The Cin7 reference (store number + confirm date only, no name --
+  // see orders.js's generateReferenceIfMissing) is secondary info here.
+  const storeHeading = orderStore ? [orderStore.store_number, orderStore.name].filter(Boolean).join(' - ') : order.store_id;
   const total = (order.order_lines ?? []).reduce((sum, l) => sum + (l.unit_price ?? 0) * l.quantity, 0);
   const hasPricing = (order.order_lines ?? []).some((l) => l.unit_price != null) && showPricing;
 
@@ -126,8 +132,8 @@ export default function OrderDetail() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">{order.reference || `Order ${order.id.slice(0, 8)}`}</h1>
-          <p className="text-sm text-[var(--muted-foreground)]">{storeName}</p>
+          <h1 className="text-lg font-semibold">{storeHeading}</h1>
+          <p className="text-sm text-[var(--muted-foreground)]">{order.reference || `Order ${order.id.slice(0, 8)}`}</p>
         </div>
         <OrderStatusBadge status={order.status} />
       </div>
@@ -208,16 +214,16 @@ export default function OrderDetail() {
                   {sub.label}
                 </div>
               )}
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
                     {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
-                    <th className="px-2 py-2 font-medium">SKU</th>
-                    <th className="px-2 py-2 font-medium">Client SKU</th>
+                    <th className="w-32 px-2 py-2 font-medium">SKU</th>
+                    <th className="w-28 px-2 py-2 font-medium">Client SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
-                    <th className="px-2 py-2 font-medium">Qty</th>
-                    {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
-                    {hasPricing && <th className="px-4 py-2 text-right font-medium">Line total ({currency})</th>}
+                    <th className="w-20 px-2 py-2 font-medium">Qty</th>
+                    {hasPricing && <th className="w-28 px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
+                    {hasPricing && <th className="w-28 px-4 py-2 text-right font-medium">Line total ({currency})</th>}
                   </tr>
                 </thead>
                 <tbody>

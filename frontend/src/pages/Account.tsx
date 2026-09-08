@@ -405,7 +405,7 @@ function AddStoreForm({ clientId, onDone, onCancel }: { clientId: string; onDone
         client_id: clientId,
         name,
         store_number: storeNumber || undefined,
-        cin7_address_line1: line1,
+        cin7_address_line1: line1 || undefined,
         cin7_address_line2: line2 || undefined,
         cin7_address_city: city || undefined,
         cin7_address_state: state || undefined,
@@ -425,7 +425,7 @@ function AddStoreForm({ clientId, onDone, onCancel }: { clientId: string; onDone
         <Field label="Store number">
           <Input value={storeNumber} onChange={(e) => setStoreNumber(e.target.value)} placeholder="e.g. PR#346" />
         </Field>
-        <Field label="Address line 1*">
+        <Field label="Address line 1">
           <Input value={line1} onChange={(e) => setLine1(e.target.value)} />
         </Field>
         <Field label="Address line 2">
@@ -455,7 +455,7 @@ function AddStoreForm({ clientId, onDone, onCancel }: { clientId: string; onDone
           variant="primary"
           size="sm"
           onClick={() => create.mutate()}
-          disabled={create.isPending || !name.trim() || !line1.trim()}
+          disabled={create.isPending || !name.trim()}
         >
           {create.isPending ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : 'Add store'}
         </Button>

@@ -174,7 +174,7 @@ export interface CreateStoreInput {
   client_id: string;
   name: string;
   store_number?: string;
-  cin7_address_line1: string;
+  cin7_address_line1?: string;
   cin7_address_line2?: string;
   cin7_address_city?: string;
   cin7_address_state?: string;

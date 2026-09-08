@@ -411,16 +411,16 @@ export default function Catalog() {
                 </div>
               )}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
                   <thead>
                     <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
                       {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
-                      <th className="px-2 py-2 font-medium">Our SKU</th>
-                      <th className="px-2 py-2 font-medium">Client SKU</th>
+                      <th className="w-32 px-2 py-2 font-medium">Our SKU</th>
+                      <th className="w-28 px-2 py-2 font-medium">Client SKU</th>
                       <th className="px-2 py-2 font-medium">Product</th>
-                      {tierNumber && showPricing && <th className="px-2 py-2 text-right font-medium">Price ({currency})</th>}
-                      <th className="px-2 py-2 font-medium">Qty</th>
-                      <th className="px-4 py-2 font-medium"></th>
+                      {tierNumber && showPricing && <th className="w-28 px-2 py-2 text-right font-medium">Price ({currency})</th>}
+                      <th className="w-20 px-2 py-2 font-medium">Qty</th>
+                      <th className="w-28 px-4 py-2 font-medium"></th>
                     </tr>
                   </thead>
                   <tbody>

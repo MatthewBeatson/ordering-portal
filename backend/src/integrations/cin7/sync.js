@@ -148,12 +148,27 @@ async function resolveLineOverrides(lines, clientId) {
   return result;
 }
 
-function validateSyncable(client, store, lines) {
+// A pinned store address is no longer required (Account's Add Store
+// form dropped that requirement 2026-09-09 -- a store's own address is
+// barely used in practice now, see resolveShippingAddress's priority
+// chain). Only a genuine blocker if NEITHER the store has one NOR the
+// client has any synced Cin7 Shipping address to fall back to --
+// otherwise resolveShippingAddress will find something at sync time.
+async function validateSyncable(client, store, lines) {
   const problems = [];
   if (!client?.cin7_customer_id) problems.push('client has no cin7_customer_id');
   if (!client?.cin7_tax_rule) problems.push('client has no cin7_tax_rule configured (see 005_client_tax.sql)');
-  if (!store?.cin7_address_line1) problems.push('store has no pinned cin7_address_line1');
   if (!lines || lines.length === 0) problems.push('order has no order_lines');
+
+  if (!store?.cin7_address_line1) {
+    const { count } = await supabaseAdmin
+      .from('client_addresses')
+      .select('id', { count: 'exact', head: true })
+      .eq('client_id', client?.id)
+      .eq('type', 'Shipping');
+    if (!count) problems.push('store has no pinned address, and the client has no synced Cin7 shipping address to fall back to');
+  }
+
   return problems;
 }
 
@@ -256,7 +271,7 @@ async function syncOrderToCin7(order) {
   }
 
   const client = store.clients;
-  const problems = validateSyncable(client, store, lines);
+  const problems = await validateSyncable(client, store, lines);
   if (problems.length > 0) {
     return recordFailed(fresh.id, `Order is not ready to sync: ${problems.join('; ')}`);
   }
