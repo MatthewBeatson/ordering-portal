@@ -42,18 +42,24 @@ export default function Cart() {
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
-  // Which store this ORDER is placed on behalf of -- decoupled from
-  // cart.storeId above, which only gets the buyer into this client's
-  // catalog/pricing context. Confirmed with the client 2026-09-09: one
-  // login often orders on behalf of many different store numbers, so
-  // this always starts unselected -- no default -- forcing a
-  // deliberate choice each time rather than silently reusing whichever
-  // store was last browsed. Feeds the portal-side heading ("PR#659 -
-  // Green Hills") and, via stores.store_number, the Cin7
-  // CustomerReference at confirm time (orders.js's
-  // generateReferenceIfMissing) -- Cin7 itself never sees the store
-  // name, only the number + confirm date.
-  const [orderStoreId, setOrderStoreId] = React.useState<string | null>(null);
+  // Which store this ORDER is placed on behalf of. Unified with
+  // cart.storeId (2026-09-09, after the two were found to disconnect --
+  // picking a store via Catalog's own "Ordering for" dropdown didn't
+  // feed this at all): starts wherever cart.storeId already is
+  // (whatever Catalog last had active), and picking a different one
+  // here also updates cart.storeId, so there's only ever one real
+  // "current store" regardless of which page it was set from. Still
+  // shown as its own searchable field -- not hidden inside a giant
+  // plain <select> -- since a real client can have hundreds of stores,
+  // and picking one here is what feeds the portal-side heading
+  // ("PR#659 - Green Hills"), the ship-to address prefill (see
+  // resolvedDefaultAddress below), and the Cin7 CustomerReference at
+  // confirm time (store number + confirm date only, never the name).
+  const [orderStoreId, setOrderStoreId] = React.useState<string | null>(() => cart.storeId ?? null);
+  function pickOrderStore(id: string) {
+    setOrderStoreId(id);
+    cart.setStore(id);
+  }
   const storesForClient = stores?.filter((s) => s.client_id === currentStore?.client_id) ?? [];
   const orderStore = storesForClient.find((s) => s.id === orderStoreId);
   // tierNumber stays real regardless of showPricing -- see Catalog.tsx's
@@ -322,7 +328,7 @@ export default function Cart() {
         ) : (
           <SearchCombobox
             options={storesForClient.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
-            onSelect={(o) => setOrderStoreId(o.id)}
+            onSelect={(o) => pickOrderStore(o.id)}
             placeholder="Search store number or name, e.g. PR#429..."
           />
         )}

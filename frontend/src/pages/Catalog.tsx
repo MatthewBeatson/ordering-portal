@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
+import { SearchCombobox } from '@/components/SearchCombobox';
 import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import type { DisplaySystem } from '@/lib/types';
@@ -298,27 +299,30 @@ export default function Catalog() {
 
         <div className="flex items-center gap-3">
           {stores.length > 1 && (
-            <label className="flex items-center gap-2 text-sm">
+            <div className="flex items-center gap-2 text-sm">
               <span className="text-[var(--muted-foreground)]">Ordering for</span>
-              <select
-                className="h-9 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-sm outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                value={cart.storeId ?? ''}
-                onChange={(e) => {
-                  if (cart.lines.length > 0 && e.target.value !== cart.storeId) {
-                    const ok = window.confirm('Switching store will clear your current cart. Continue?');
-                    if (!ok) return;
-                    cart.clear();
-                  }
-                  cart.setStore(e.target.value);
-                }}
-              >
-                {stores.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <div className="w-64">
+                <SearchCombobox
+                  options={stores.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
+                  initialQuery={currentStore ? [currentStore.store_number, currentStore.name].filter(Boolean).join(' - ') : ''}
+                  onSelect={(o) => {
+                    // Only a genuine catalog change (different client) needs the
+                    // cart-clearing warning -- switching between two stores under
+                    // the SAME client (e.g. two Prouds store numbers) shares the
+                    // identical curated catalog/pricing, nothing to lose.
+                    const target = stores.find((s) => s.id === o.id);
+                    const isClientChange = target && currentStore && target.client_id !== currentStore.client_id;
+                    if (isClientChange && cart.lines.length > 0) {
+                      const ok = window.confirm('Switching client will clear your current cart. Continue?');
+                      if (!ok) return;
+                      cart.clear();
+                    }
+                    cart.setStore(o.id);
+                  }}
+                  placeholder="Search store number or name..."
+                />
+              </div>
+            </div>
           )}
           <ImageSizeToggle value={imageSize} onChange={setImageSize} />
         </div>
