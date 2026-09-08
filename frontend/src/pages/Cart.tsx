@@ -184,6 +184,7 @@ export default function Cart() {
                   <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
                     {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
                     <th className="px-2 py-2 font-medium">SKU</th>
+                    <th className="px-2 py-2 font-medium">Client SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
                     <th className="px-2 py-2 font-medium">Qty</th>
                     {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
@@ -210,6 +211,9 @@ export default function Cart() {
                           </td>
                         )}
                         <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
+                        <td className="px-2 py-2 font-mono text-xs">
+                          {clientSkuByProduct.get(bySku.get(line.sku)?.id ?? '') ?? <span className="text-[var(--muted-foreground)]">—</span>}
+                        </td>
                         <td className="px-2 py-2">{line.description ?? '—'}</td>
                         <td className="px-2 py-2">
                           <Input

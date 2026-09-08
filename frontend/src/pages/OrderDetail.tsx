@@ -77,7 +77,7 @@ export default function OrderDetail() {
   const { data: thumbnails } = useProductThumbnails(showImages ? (order?.order_lines ?? []).map((l) => l.sku) : []);
 
   const clientId = stores?.find((s) => s.id === order?.store_id)?.client_id;
-  const { showPricing, currency } = useClientCatalog(clientId);
+  const { showPricing, currency, clientSkuByProduct } = useClientCatalog(clientId);
   const { bySku } = useResolvedLines((order?.order_lines ?? []).map((l) => l.sku), clientId);
   const customRules = useCustomGroupRules();
   const groups = React.useMemo(
@@ -123,7 +123,7 @@ export default function OrderDetail() {
   }
 
   return (
-    <div className="flex max-w-3xl flex-col gap-4">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold">{order.reference || `Order ${order.id.slice(0, 8)}`}</h1>
@@ -213,6 +213,7 @@ export default function OrderDetail() {
                   <tr className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--card)] text-left text-xs text-[var(--muted-foreground)]">
                     {showImages && <th className={`${IMAGE_COL_CLASS[imageSize]} px-4 py-2 font-medium`}></th>}
                     <th className="px-2 py-2 font-medium">SKU</th>
+                    <th className="px-2 py-2 font-medium">Client SKU</th>
                     <th className="px-2 py-2 font-medium">Description</th>
                     <th className="px-2 py-2 font-medium">Qty</th>
                     {hasPricing && <th className="px-2 py-2 text-right font-medium">Unit price ({currency})</th>}
@@ -238,6 +239,9 @@ export default function OrderDetail() {
                           </td>
                         )}
                         <td className="px-2 py-2 font-mono text-xs">{line.sku}</td>
+                        <td className="px-2 py-2 font-mono text-xs">
+                          {clientSkuByProduct.get(bySku.get(line.sku)?.id ?? '') ?? <span className="text-[var(--muted-foreground)]">—</span>}
+                        </td>
                         <td className="px-2 py-2">{line.description ?? '—'}</td>
                         <td className="px-2 py-2">{line.quantity}</td>
                         {hasPricing && <td className="px-2 py-2 text-right tabular-nums">{money(line.unit_price, currency)}</td>}
