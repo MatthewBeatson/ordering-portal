@@ -72,9 +72,14 @@ export function SearchCombobox({
           // Select the pre-filled text on focus so a single click, then
           // typing, replaces it outright -- no need to clear the
           // existing value by hand first before starting a new search.
+          // Deferred one frame: setOpen(true) below causes a re-render
+          // that reassigns this controlled input's value DOM property
+          // (even to the same string) on commit, which resets the
+          // selection right back to collapsed if select() runs first.
           onFocus={(e) => {
             setOpen(true);
-            e.target.select();
+            const el = e.target;
+            requestAnimationFrame(() => el.select());
           }}
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onKeyDown={handleKeyDown}
