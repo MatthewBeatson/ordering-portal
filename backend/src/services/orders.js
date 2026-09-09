@@ -120,13 +120,19 @@ function validateUpdateInput(body) {
 // not an explicit override" -- see sync.js's resolveShippingAddress).
 async function validateShippingAddress(shippingClientAddressId, clientId) {
   if (!shippingClientAddressId) return;
+  // type='Shipping' is a hard requirement here, not just a frontend
+  // filter -- the client's fixed Billing address (always used for
+  // invoicing regardless of shipping destination, see cin7/sync.js's
+  // resolveBillingAddress) must never be usable as an order's actual
+  // shipping destination, including via a direct API call.
   const { data, error } = await supabaseAdmin
     .from('client_addresses')
     .select('id')
     .eq('id', shippingClientAddressId)
     .eq('client_id', clientId)
+    .eq('type', 'Shipping')
     .maybeSingle();
-  if (error || !data) throw new ApiError(400, "shipping_client_address_id isn't a valid address for this client");
+  if (error || !data) throw new ApiError(400, "shipping_client_address_id isn't a valid shipping address for this client");
 }
 
 async function fetchOrder(orderId) {

@@ -76,14 +76,21 @@ async function updateClientAddress(req, storeId, clientAddressId) {
   // client -- a store-scoped permission check above isn't enough on
   // its own to stop that.
   if (clientAddressId) {
+    // type='Shipping' only -- a store's ship-to must never resolve to
+    // the client's fixed Billing address (same rule as orders.js's
+    // validateShippingAddress and clients.js's
+    // setUserDefaultShippingAddress).
     const { data: address, error: addressErr } = await supabaseAdmin
       .from('client_addresses')
-      .select('id, client_id')
+      .select('id, client_id, type')
       .eq('id', clientAddressId)
       .maybeSingle();
     if (addressErr) throw new ApiError(500, 'Failed to load address', addressErr.message);
     if (!address || address.client_id !== store.client_id) {
       throw new ApiError(400, 'That address does not belong to this store\'s client');
+    }
+    if (address.type !== 'Shipping') {
+      throw new ApiError(400, 'Only a Shipping-type address can be assigned as a store\'s ship-to address');
     }
   }
 

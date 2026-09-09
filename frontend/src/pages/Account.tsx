@@ -111,10 +111,21 @@ function ClientStoreGroup({
   // portal-native. Reads go straight through Supabase + RLS (client-
   // admin/staff already covered, same as everywhere else); only the
   // write needs the backend.
+  // type='Shipping' only -- every use of this list here (per-store
+  // ship-to assignment, CSV export, per-user default shipping address)
+  // is a shipping-destination picker. The client's Billing address
+  // (always fixed, used for invoicing regardless of shipping
+  // destination -- see resolveBillingAddress) must never be selectable
+  // as one, so it's filtered out at the query itself.
   const { data: clientAddresses } = useQuery({
     queryKey: ['client-addresses', clientId],
     queryFn: async () => {
-      const { data, error } = await supabase.from('client_addresses').select('*').eq('client_id', clientId).order('is_default', { ascending: false });
+      const { data, error } = await supabase
+        .from('client_addresses')
+        .select('*')
+        .eq('client_id', clientId)
+        .eq('type', 'Shipping')
+        .order('is_default', { ascending: false });
       if (error) throw error;
       return data as ClientAddress[];
     },

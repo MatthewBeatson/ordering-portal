@@ -125,8 +125,17 @@ async function setUserDefaultShippingAddress(req, clientId, userId, addressId) {
   if (!userId || typeof userId !== 'string') throw new ApiError(400, 'userId is required');
 
   if (addressId) {
-    const { data, error } = await supabaseAdmin.from('client_addresses').select('id').eq('id', addressId).eq('client_id', clientId).maybeSingle();
-    if (error || !data) throw new ApiError(400, "address_id isn't a valid address for this client");
+    // type='Shipping' only -- a login's default must never resolve to
+    // the client's fixed Billing address (see orders.js's
+    // validateShippingAddress for the same rule on the per-order path).
+    const { data, error } = await supabaseAdmin
+      .from('client_addresses')
+      .select('id')
+      .eq('id', addressId)
+      .eq('client_id', clientId)
+      .eq('type', 'Shipping')
+      .maybeSingle();
+    if (error || !data) throw new ApiError(400, "address_id isn't a valid shipping address for this client");
   }
 
   const { error } = await supabaseAdmin

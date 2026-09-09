@@ -100,10 +100,21 @@ export default function Cart() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingOrder]);
 
+  // type='Shipping' only -- a client's Billing address (e.g. the fixed
+  // Summer Hill billing address, always used for invoicing regardless
+  // of shipping destination, see resolveBillingAddress) must never be
+  // selectable or fall through as a shipping default here. Filtered at
+  // the query itself, not just in the resolution logic below, so it's
+  // never even a candidate.
   const { data: addresses } = useQuery({
     queryKey: ['client-addresses', currentStore?.client_id],
     queryFn: async () => {
-      const { data, error } = await supabase.from('client_addresses').select('*').eq('client_id', currentStore!.client_id).order('is_default', { ascending: false });
+      const { data, error } = await supabase
+        .from('client_addresses')
+        .select('*')
+        .eq('client_id', currentStore!.client_id)
+        .eq('type', 'Shipping')
+        .order('is_default', { ascending: false });
       if (error) throw error;
       return data as ClientAddress[];
     },
