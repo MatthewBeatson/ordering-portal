@@ -283,10 +283,21 @@ async function syncOrderToCin7(order) {
     // Cin7-side idempotency check: closes the gap the local-only guard
     // above can't -- if a previous attempt created the Sale in Cin7 but
     // we never recorded it locally (e.g. a timeout), ExternalID finds
-    // it instead of creating a duplicate.
+    // it instead of creating a duplicate. A VOIDED match (a staff member
+    // manually voided a previously-failed Sale header directly in
+    // Cin7 -- real case, 2026-09-10) is treated as no match at all:
+    // Cin7 refuses any further write to a voided Sale ("Order Status is
+    // VOIDED"), so reusing it would just fail forever on every retry.
+    // Falling through to create a brand new Sale header with the same
+    // ExternalID is safe -- Cin7 doesn't enforce ExternalID uniqueness,
+    // it's purely a lookup convenience field for us.
     let saleId;
     let orderResBody;
-    const existing = await cin7.findExistingSale(fresh.idempotency_key);
+    const foundExisting = await cin7.findExistingSale(fresh.idempotency_key);
+    const existing = foundExisting && foundExisting.Status !== 'VOIDED' ? foundExisting : null;
+    if (foundExisting?.Status === 'VOIDED') {
+      console.log(`[cin7] order ${fresh.id}: found existing Sale ${foundExisting.SaleID} but it's VOIDED -- creating a new Sale instead`);
+    }
 
     if (existing) {
       saleId = existing.SaleID;
