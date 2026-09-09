@@ -68,6 +68,13 @@ async function createSaleHeader(order, shippingAddress, client, billingAddress) 
     SkipQuote: true,
     ExternalID: order.idempotency_key,
     CustomerReference: order.reference || undefined,
+    // Plain descriptive string (SalesRepresentative, confirmed via
+    // Cin7's own Sale POST field docs) -- unlike TaxRule/PriceTier,
+    // nothing suggests this has to match an existing reference record,
+    // so a fixed literal marking every Sale as portal-originated is
+    // fine. Every order synced from here is "sold by" the portal
+    // itself, not an individual staff member.
+    SalesRepresentative: 'Portal',
     TaxRule: client.cin7_tax_rule,
     // Required whenever the customer's currency differs from the org's
     // base currency (confirmed via Cin7's own Sale POST field docs) --
