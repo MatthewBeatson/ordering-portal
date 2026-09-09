@@ -69,7 +69,13 @@ export function SearchCombobox({
             setQuery(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          // Select the pre-filled text on focus so a single click, then
+          // typing, replaces it outright -- no need to clear the
+          // existing value by hand first before starting a new search.
+          onFocus={(e) => {
+            setOpen(true);
+            e.target.select();
+          }}
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
