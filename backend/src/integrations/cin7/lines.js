@@ -29,6 +29,14 @@ function mergeDuplicateLines(lines) {
 // Tax is computed here (not read back from Cin7) because Cin7's line
 // schema requires the caller to supply Tax/Total up front, and
 // order_lines carries no tax data of its own -- see clients.tax_rate.
+// Total is tax-EXCLUSIVE (Quantity x Price only, Tax is a separate,
+// additive field never summed into it) -- confirmed 2026-09-10 via
+// Cin7's own real Sale POST example payload (Total consistently equals
+// Quantity*Price across all three of its sample lines, regardless of
+// Tax). Previously sent as subtotal+tax, a bug invisible for a 0% tax
+// rate (JPL-AU) since the two formulas coincide there, but a hard sync
+// failure ("Total doesn't match with Total value expected") for any
+// client with a real tax rate (first caught on SG-UK's 20%).
 //
 // Name is overridden to "<current Cin7 name> - <client sku>" when a
 // client SKU is known (client_product_skus -- the portal stays the
@@ -59,7 +67,7 @@ function buildSaleOrderLine(line, client, lineOverrides) {
     Quantity: quantity,
     Price: price,
     Tax: tax,
-    Total: round2(subtotal + tax),
+    Total: subtotal,
     TaxRule: client.cin7_tax_rule,
     ...(override ? { Name: override.name } : {}),
   };
