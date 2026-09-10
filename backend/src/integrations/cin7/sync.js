@@ -80,16 +80,31 @@ async function resolveShippingAddress(order, store) {
   };
 }
 
-// Resolves the BILLING address -- always the client's own default
-// Billing-type Cin7 address (client_addresses.type='Billing',
-// is_default=true), regardless of shipping destination or which
-// store/user placed the order (confirmed with the client: every JPL-AU
-// order, whatever brand -- PR/AC/GM -- always bills to the same Prouds
-// HQ billing address). Best-effort: returns null (BillingAddress
-// simply omitted from the Sale) if the client has no such address
-// synced, rather than failing the sync -- Cin7 has its own fallback
-// behavior for an omitted BillingAddress regardless.
+// Resolves the BILLING address -- always the client's own billing
+// address, regardless of shipping destination or which store/user
+// placed the order (confirmed with the client: every JPL-AU order,
+// whatever brand -- PR/AC/GM -- always bills to the same Prouds HQ
+// billing address). Two sources, in priority order:
+// (1) clients.billing_client_address_id (033) -- an explicit staff
+// override, needed when Cin7 itself has no address actually typed
+// "Billing" for the customer. Confirmed live 2026-09-11: Signet/SG-UK's
+// three synced Cin7 addresses are ALL typed "Shipping" (there's no
+// Cin7-side Billing address to fall back on at all), yet the business
+// always bills their real Watford address -- this override points
+// straight at that client_addresses row regardless of its Cin7 Type.
+// (2) client_addresses.type='Billing' AND is_default=true -- the
+// original lookup, still correct for JPL-AU (PO Box 157, Summer Hill)
+// and JPL-NZ (PO Box 68107, Newton, Auckland), both of which do have a
+// real Cin7-typed Billing address.
+// Best-effort: returns null (BillingAddress simply omitted from the
+// Sale) if neither resolves, rather than failing the sync -- Cin7 has
+// its own fallback behavior for an omitted BillingAddress regardless.
 async function resolveBillingAddress(client) {
+  if (client.billing_client_address_id) {
+    const address = await fetchClientAddress(client.billing_client_address_id);
+    if (address) return addressRowToCin7Shape(address);
+  }
+
   const { data: address, error } = await supabaseAdmin
     .from('client_addresses')
     .select('line1, line2, city, state, postcode, country')
