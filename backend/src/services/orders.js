@@ -1,6 +1,7 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
 const { syncOrderToCin7 } = require('../integrations/cin7/sync');
+const cin7 = require('../integrations/cin7/client');
 
 // pending -> confirmed -> in_progress -> shipped -> delivered, with
 // 'rejected' as a pre-confirm terminal state. 'in_progress' is entered
@@ -398,11 +399,48 @@ async function getOrder(req, orderId) {
 // failed (or never-attempted) sync -- there's no automatic retry, so
 // this is the only way to try again without re-flagging/re-clearing as
 // a workaround.
+//
+// Also handles a second, rarer case: an order that already synced
+// successfully (status 'in_progress', inventory_sync.status 'synced')
+// whose Cin7 Sale was then VOIDED out-of-band, directly in Cin7's UI,
+// by a staff member (real case, 2026-09-11 -- see sync.js's VOIDED
+// handling in findExistingSale's reuse branch, which covers a Sale
+// voided *during* a stuck sync attempt; this covers one voided
+// *after* a clean success, which is a different local state entirely
+// -- our own inventory_sync row still says 'synced' with nothing
+// wrong locally, and syncOrderToCin7's own idempotency guard would
+// otherwise skip immediately on seeing that). A live Cin7 check is
+// required before allowing this path, so it can't be used to
+// accidentally double-sync an order whose Sale is still perfectly
+// fine -- only a confirmed-VOIDED match clears the stale local record
+// and drops the order back to 'confirmed' for a normal re-sync.
 async function retrySync(req, orderId) {
   requireStaff(req);
   const order = await fetchOrder(orderId);
 
-  if (order.status !== 'confirmed') {
+  if (order.status === 'in_progress') {
+    const { data: sync } = await supabaseAdmin
+      .from('inventory_sync')
+      .select('*')
+      .eq('order_id', orderId)
+      .eq('provider', 'cin7')
+      .maybeSingle();
+    if (sync?.status !== 'synced' || !sync.external_id) {
+      throw new ApiError(409, `Only 'confirmed' orders can be retried (this order is '${order.status}')`);
+    }
+    const existing = await cin7.findExistingSale(order.idempotency_key);
+    if (!existing || existing.Status !== 'VOIDED') {
+      throw new ApiError(409, `This order's Cin7 Sale (${sync.external_id}) doesn't show as voided in Cin7 -- nothing to retry.`);
+    }
+    await supabaseAdmin
+      .from('inventory_sync')
+      .update({ status: 'failed', error_message: `Cin7 Sale ${sync.external_id} was voided after syncing -- retrying`, external_id: null })
+      .eq('order_id', orderId)
+      .eq('provider', 'cin7');
+    const { error: revertErr } = await supabaseAdmin.from('orders').update({ status: 'confirmed' }).eq('id', orderId);
+    if (revertErr) throw new ApiError(500, `Failed to revert order to 'confirmed': ${revertErr.message}`);
+    order.status = 'confirmed';
+  } else if (order.status !== 'confirmed') {
     throw new ApiError(409, `Only 'confirmed' orders can be retried (this order is '${order.status}')`);
   }
 

@@ -170,6 +170,20 @@ export default function OrderDetail() {
               <span className="text-[var(--muted-foreground)]">
                 Cin7 Sale {order.inventory_sync.external_id} · {dateTime(order.inventory_sync.synced_at)}
               </span>
+              {/* Covers a Sale voided directly in Cin7 AFTER a clean sync -- rare
+                  (a staff decision made in Cin7 itself, not a portal failure), so this
+                  stays a low-key text link rather than a prominent button. retrySync
+                  checks live with Cin7 before doing anything if the order's already
+                  'in_progress' -- this can't accidentally double-sync a Sale that's
+                  still fine. */}
+              <button
+                type="button"
+                className="text-xs text-[var(--muted-foreground)] underline decoration-dotted underline-offset-2 hover:text-[var(--foreground)]"
+                onClick={() => retrySync.mutate()}
+                disabled={retrySync.isPending}
+              >
+                {retrySync.isPending ? 'Checking…' : 'Voided in Cin7? Retry sync'}
+              </button>
             </div>
           ) : order.inventory_sync?.status === 'failed' ? (
             <div className="flex flex-col gap-2">
