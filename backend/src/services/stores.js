@@ -38,13 +38,24 @@ async function updateStoreNumber(req, storeId, storeNumber) {
     throw new ApiError(403, 'You do not have permission to edit this store');
   }
 
-  if (typeof storeNumber !== 'string' || storeNumber.trim().length === 0) {
-    throw new ApiError(400, 'store_number must be a non-empty string');
+  if (storeNumber !== null && typeof storeNumber !== 'string') {
+    throw new ApiError(400, 'store_number must be a string or null');
   }
+
+  // Blank clears it to null rather than being rejected -- not every
+  // store needs a portal-visible reference number (client request,
+  // 2026-09-12: a client admin clearing a number to retype it was
+  // blocked outright). stores.store_number has no NOT NULL constraint
+  // and its unique index is (client_id, store_number), where Postgres
+  // treats every null as distinct -- so any number of a client's
+  // stores can sit at null with no conflict. Downstream, order
+  // reference generation already no-ops gracefully on a null
+  // store_number (generateReferenceIfMissing, orders.js).
+  const trimmed = typeof storeNumber === 'string' ? storeNumber.trim() : null;
 
   const { data, error } = await supabaseAdmin
     .from('stores')
-    .update({ store_number: storeNumber.trim() })
+    .update({ store_number: trimmed || null })
     .eq('id', storeId)
     .select('id, name, store_number, client_id')
     .single();

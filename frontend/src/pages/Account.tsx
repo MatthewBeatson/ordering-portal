@@ -308,7 +308,7 @@ function ClientStoreGroup({
                         <Button
                           size="sm"
                           variant="secondary"
-                          disabled={!dirty || save.isPending || value.trim().length === 0 || nameValue.trim().length === 0}
+                          disabled={!dirty || save.isPending || nameValue.trim().length === 0}
                           onClick={() =>
                             save.mutate({
                               id: s.id,
