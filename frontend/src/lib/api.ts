@@ -186,6 +186,7 @@ export const storesApi = {
   listManageable: () => request<{ stores: ManageableStore[] }>('GET', '/stores'),
   updateStoreNumber: (id: string, storeNumber: string) =>
     request<ManageableStore>('PATCH', `/stores/${id}/store-number`, { store_number: storeNumber }),
+  updateStoreName: (id: string, name: string) => request<ManageableStore>('PATCH', `/stores/${id}/name`, { name }),
   updateClientAddress: (id: string, clientAddressId: string | null) =>
     request<ManageableStore>('PATCH', `/stores/${id}/client-address`, { client_address_id: clientAddressId }),
   importAddresses: (clientId: string, rows: { store_number: string; address: string }[]) =>

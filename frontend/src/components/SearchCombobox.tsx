@@ -40,10 +40,21 @@ export function SearchCombobox({
   const [open, setOpen] = React.useState(false);
   React.useEffect(() => setQuery(initialQuery), [initialQuery]);
 
+  // Tracks whether `query` currently reflects a real committed
+  // selection (true, including right after initialQuery syncs in from
+  // outside) vs. mid-edit free typing (false). Lets onBlur tell the two
+  // apart: leaving the field after typing/clearing without picking a
+  // match should snap back to whatever's actually selected -- e.g. the
+  // "Use client default" placeholder once a store's ship-to address is
+  // cleared -- rather than stranding the field on whatever partial text
+  // was left in it.
+  const committedRef = React.useRef(true);
+
   const q = query.trim().toLowerCase();
   const matches = q ? options.filter((o) => o.label.toLowerCase().includes(q)).slice(0, maxResults) : [];
 
   function commit(option: SearchComboboxOption) {
+    committedRef.current = true;
     onSelect(option);
     setQuery(option.label);
     setOpen(false);
@@ -66,6 +77,7 @@ export function SearchCombobox({
         <Input
           value={query}
           onChange={(e) => {
+            committedRef.current = false;
             setQuery(e.target.value);
             setOpen(true);
           }}
@@ -81,7 +93,15 @@ export function SearchCombobox({
             const el = e.target;
             requestAnimationFrame(() => el.select());
           }}
-          onBlur={() => window.setTimeout(() => setOpen(false), 150)}
+          onBlur={() =>
+            window.setTimeout(() => {
+              setOpen(false);
+              if (!committedRef.current) {
+                setQuery(initialQuery);
+                committedRef.current = true;
+              }
+            }, 150)
+          }
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}

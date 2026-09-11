@@ -94,11 +94,22 @@ function ClientStoreGroup({
   isPortalAdmin: boolean;
 }) {
   const [edits, setEdits] = React.useState<Record<string, string>>({});
+  const [nameEdits, setNameEdits] = React.useState<Record<string, string>>({});
   const [savedId, setSavedId] = React.useState<string | null>(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
 
+  // One Save button covers both fields -- name was previously fixed at
+  // creation time with no edit path at all; client admins asked to be
+  // able to fix a typo/rename themselves rather than needing staff.
+  // Runs whichever of the two calls is actually dirty; only one usually
+  // is, but nothing stops editing both before saving.
   const save = useMutation({
-    mutationFn: ({ id, storeNumber }: { id: string; storeNumber: string }) => storesApi.updateStoreNumber(id, storeNumber),
+    mutationFn: async ({ id, storeNumber, name }: { id: string; storeNumber?: string; name?: string }) => {
+      let store: ManageableStore | undefined;
+      if (storeNumber !== undefined) store = await storesApi.updateStoreNumber(id, storeNumber);
+      if (name !== undefined) store = await storesApi.updateStoreName(id, name);
+      return store!;
+    },
     onSuccess: (store) => {
       onChanged();
       setSavedId(store.id);
@@ -249,10 +260,18 @@ function ClientStoreGroup({
             <tbody>
               {stores.map((s) => {
                 const value = edits[s.id] ?? s.store_number ?? '';
-                const dirty = value !== (s.store_number ?? '');
+                const nameValue = nameEdits[s.id] ?? s.name ?? '';
+                const dirty = value !== (s.store_number ?? '') || nameValue !== (s.name ?? '');
                 return (
                   <tr key={s.id} className="border-b border-[var(--border)] last:border-0">
-                    <td className="px-4 py-2 font-medium">{s.name}</td>
+                    <td className="px-4 py-2 font-medium">
+                      <Input
+                        value={nameValue}
+                        onChange={(e) => setNameEdits((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                        placeholder="Store name"
+                        className="h-8"
+                      />
+                    </td>
                     <td className="px-2 py-2">
                       <Input
                         value={value}
@@ -289,8 +308,14 @@ function ClientStoreGroup({
                         <Button
                           size="sm"
                           variant="secondary"
-                          disabled={!dirty || save.isPending || value.trim().length === 0}
-                          onClick={() => save.mutate({ id: s.id, storeNumber: value })}
+                          disabled={!dirty || save.isPending || value.trim().length === 0 || nameValue.trim().length === 0}
+                          onClick={() =>
+                            save.mutate({
+                              id: s.id,
+                              storeNumber: value !== (s.store_number ?? '') ? value : undefined,
+                              name: nameValue !== (s.name ?? '') ? nameValue : undefined,
+                            })
+                          }
                         >
                           Save
                         </Button>

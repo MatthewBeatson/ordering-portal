@@ -24,6 +24,14 @@ router.patch(
 );
 
 router.patch(
+  '/:id/name',
+  asyncHandler(async (req, res) => {
+    const store = await storesService.updateStoreName(req, req.params.id, req.body?.name);
+    res.json(store);
+  })
+);
+
+router.patch(
   '/:id/client-address',
   asyncHandler(async (req, res) => {
     const store = await storesService.updateClientAddress(req, req.params.id, req.body?.client_address_id ?? null);

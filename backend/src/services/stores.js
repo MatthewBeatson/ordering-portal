@@ -52,6 +52,36 @@ async function updateStoreNumber(req, storeId, storeNumber) {
   return data;
 }
 
+// Same permission shape as updateStoreNumber -- name was originally
+// only ever set once, at store creation, with no edit path (Account
+// page just rendered it as plain text). Client admins asked to be able
+// to fix/rename it themselves rather than needing staff for a typo.
+async function updateStoreName(req, storeId, name) {
+  const { isPortalAdmin, clientRoles } = req.roles;
+
+  const { data: store, error: storeErr } = await supabaseAdmin.from('stores').select('id, client_id').eq('id', storeId).maybeSingle();
+  if (storeErr) throw new ApiError(500, 'Failed to load store', storeErr.message);
+  if (!store) throw new ApiError(404, 'Store not found');
+
+  const isClientAdminOfThisStore = clientRoles.some((r) => r.client_id === store.client_id);
+  if (!isPortalAdmin && !isClientAdminOfThisStore) {
+    throw new ApiError(403, 'You do not have permission to edit this store');
+  }
+
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    throw new ApiError(400, 'name must be a non-empty string');
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('stores')
+    .update({ name: name.trim() })
+    .eq('id', storeId)
+    .select('id, name, store_number, client_id')
+    .single();
+  if (error) throw new ApiError(500, 'Failed to update store name', error.message);
+  return data;
+}
+
 // Which of the client's synced Cin7 addresses (014) this store ships
 // to (027) -- same permission shape as updateStoreNumber above.
 // clientAddressId may be null (clears the assignment, falls back to
@@ -219,4 +249,4 @@ async function createStore(req, input) {
   return data;
 }
 
-module.exports = { listManageableStores, updateStoreNumber, updateClientAddress, importAddressMatches, createStore };
+module.exports = { listManageableStores, updateStoreNumber, updateStoreName, updateClientAddress, importAddressMatches, createStore };
