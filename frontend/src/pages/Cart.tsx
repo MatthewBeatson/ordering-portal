@@ -340,13 +340,10 @@ export default function Cart() {
           <SearchCombobox
             options={storesForClient.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
             onSelect={(o) => pickOrderStore(o.id)}
-            placeholder="Search store number or name, e.g. PR#429..."
+            placeholder="Search store number or name..."
           />
         )}
-        <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-          Which store this order is placed for -- sets the order's heading here and the store number in the Cin7 reference
-          once confirmed (Cin7 never sees the store name, only the number and confirm date).
-        </p>
+        <p className="mt-1 text-xs text-[var(--muted-foreground)]">Which store this order is placed for.</p>
       </Card>
 
       {addresses && addresses.length > 0 && (
