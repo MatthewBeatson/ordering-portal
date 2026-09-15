@@ -197,7 +197,7 @@ export default function Cart() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-3">
           <h1 className="flex items-center gap-2 text-lg font-semibold">
             {isEditing ? (
               <>
@@ -213,9 +213,36 @@ export default function Cart() {
               ['Cart', orderStore?.name, orderStore?.store_number].filter(Boolean).join(' - ')
             )}
           </h1>
+          {/* Exact mirror of Catalog's own "Ordering for" switcher (same
+              options/onSelect/cart-clearing-confirm logic) -- moved beside
+              the heading here instead of labeled off to the right, and
+              always blank (clearAfterSelect) rather than showing the
+              current store: this box is purely "switch catalog/pricing
+              context", a different concept from the Store card below
+              (which store the ORDER is placed for), so it must never look
+              like it's displaying that order-store's value. */}
+          {stores && stores.length > 1 && (
+            <div className="w-64">
+              <SearchCombobox
+                options={stores.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
+                initialQuery=""
+                clearAfterSelect
+                onSelect={(o) => {
+                  const target = stores.find((s) => s.id === o.id);
+                  const isClientChange = target && currentStore && target.client_id !== currentStore.client_id;
+                  if (isClientChange && cart.lines.length > 0) {
+                    const ok = window.confirm('Switching client will clear your current cart. Continue?');
+                    if (!ok) return;
+                    cart.clear();
+                  }
+                  cart.setStore(o.id);
+                }}
+                placeholder="Search store number or name..."
+              />
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
-          {currentStore && <span className="text-sm text-[var(--muted-foreground)]">Ordering for {currentStore.name}</span>}
           {!isEmpty && <GroupModeToggle value={groupMode} onChange={setGroupMode} />}
           {!isEmpty && <ImageSizeToggle value={imageSize} onChange={setImageSize} />}
           {isEditing && (

@@ -28,6 +28,7 @@ export function SearchCombobox({
   placeholder,
   maxResults = 8,
   disabled = false,
+  clearAfterSelect = false,
 }: {
   options: SearchComboboxOption[];
   onSelect: (option: SearchComboboxOption) => void;
@@ -35,6 +36,13 @@ export function SearchCombobox({
   placeholder: string;
   maxResults?: number;
   disabled?: boolean;
+  // For a picker that's never meant to display "today's value" as text
+  // (e.g. Cart's "Ordering for" switcher, 2026-09-15) -- every commit
+  // snaps straight back to the empty placeholder instead of showing the
+  // option just picked, so the box always reads as "search again", not
+  // "here's what's selected". Pair with initialQuery="" (the caller's
+  // own selection state lives elsewhere, this box never reflects it).
+  clearAfterSelect?: boolean;
 }) {
   const [query, setQuery] = React.useState(initialQuery);
   const [open, setOpen] = React.useState(false);
@@ -56,7 +64,7 @@ export function SearchCombobox({
   function commit(option: SearchComboboxOption) {
     committedRef.current = true;
     onSelect(option);
-    setQuery(option.label);
+    setQuery(clearAfterSelect ? '' : option.label);
     setOpen(false);
   }
 
