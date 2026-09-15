@@ -205,7 +205,12 @@ export default function Cart() {
                 Editing {editingOrder?.reference || `order ${cart.editingOrderId?.slice(0, 8)}`}
               </>
             ) : (
-              'Cart'
+              // orderStore is scoped to storesForClient -- this client's own
+              // stores (see storesForClient above) -- so this can never show
+              // another client's store name/number. Number omitted entirely
+              // when the store doesn't have one (see Account's now-clearable
+              // store-number field).
+              ['Cart', orderStore?.name, orderStore?.store_number].filter(Boolean).join(' - ')
             )}
           </h1>
         </div>

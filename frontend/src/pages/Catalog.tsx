@@ -102,7 +102,7 @@ export default function Catalog() {
   // value still has to flow through to Cin7 for invoicing regardless
   // of whether this client's buyers can see prices in the portal.
   // showPricing only gates what gets *displayed*.
-  const { tierNumber, showPricing, currency, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
+  const { client, tierNumber, showPricing, currency, clientSkuByProduct, products, productsLoading, productsError } = useClientCatalog(currentStore?.client_id);
 
   const [search, setSearch] = React.useState('');
   // Multi-select (028 -- a product can belong to more than one display
@@ -295,7 +295,12 @@ export default function Catalog() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Catalog</h1>
+        {/* client is fetched scoped to currentStore's own client_id (useClientCatalog,
+            itself derived from the signed-in user's own accessible stores via
+            useMyStores' RLS-backed query) -- this can never resolve to a client the
+            viewer doesn't have access to, so this heading can never leak another
+            client's name (e.g. Signet showing while a Prouds store is active). */}
+        <h1 className="text-lg font-semibold">{['Catalog', client?.name].filter(Boolean).join(' - ')}</h1>
 
         <div className="flex items-center gap-3">
           {stores.length > 1 && (
