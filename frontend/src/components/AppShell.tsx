@@ -79,14 +79,20 @@ export function AppShell() {
           )}
         </nav>
 
-        <div className="mt-4 border-t border-[var(--border)] pt-4">
-          {canManageAccount && (
+        {/* Its own divided section, distinct from both the main nav above
+            and the sign-out footer below -- Account is a settings area,
+            not part of either. */}
+        {canManageAccount && (
+          <div className="mt-4 border-t border-[var(--border)] pt-4">
             <NavLink to="/account" className={navLinkClass}>
               <Settings className="h-4 w-4" />
               Account
             </NavLink>
-          )}
-          <p className="mt-2 truncate px-2 text-xs text-[var(--muted-foreground)]">{session?.user.email}</p>
+          </div>
+        )}
+
+        <div className="mt-4 border-t border-[var(--border)] pt-4">
+          <p className="truncate px-2 text-xs text-[var(--muted-foreground)]">{session?.user.email}</p>
           <button
             onClick={() => signOut()}
             className="mt-1 flex w-full items-center gap-2.5 rounded-[var(--radius)] px-2 py-2 text-sm text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
