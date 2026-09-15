@@ -8,6 +8,7 @@ import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useResolvedLines } from '@/lib/useResolvedLines';
 import { useClientCatalog } from '@/lib/useClientCatalog';
+import { useImageSize } from '@/lib/useImageSize';
 import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
 import { money, dateTime } from '@/lib/format';
@@ -22,14 +23,8 @@ import { RefreshCw, Pencil } from 'lucide-react';
 
 export default function OrderDetail() {
   const { orderId } = useParams<{ orderId: string }>();
-  const {
-    canApprove,
-    isPortalAdmin,
-    imageSizePreference: imageSize,
-    setImageSizePreference: setImageSize,
-    orderDetailGroupMode: groupMode,
-    setOrderDetailGroupMode: setGroupMode,
-  } = useAuth();
+  const { canApprove, isPortalAdmin, orderDetailGroupMode: groupMode, setOrderDetailGroupMode: setGroupMode } = useAuth();
+  const [imageSize, setImageSize] = useImageSize('orderDetail');
   const cart = useCart();
   const { data: stores } = useMyStores();
   const navigate = useNavigate();

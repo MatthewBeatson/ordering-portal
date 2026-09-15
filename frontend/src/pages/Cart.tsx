@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useMyStores } from '@/lib/useStores';
 import { useProductThumbnails } from '@/lib/useProductThumbnails';
 import { useClientCatalog } from '@/lib/useClientCatalog';
+import { useImageSize } from '@/lib/useImageSize';
 import { useResolvedLines } from '@/lib/useResolvedLines';
 import { groupProducts } from '@/lib/groupProducts';
 import { useCustomGroupRules } from '@/lib/useCustomGroupRules';
@@ -31,15 +32,8 @@ export default function Cart() {
   const [error, setError] = React.useState<string | null>(null);
   // Shared, per-user-persisted preference (see AuthContext) -- same
   // full hide/small/large cycle as Catalog/Order Detail now.
-  const {
-    session,
-    isPortalAdmin,
-    clientRoles,
-    imageSizePreference: imageSize,
-    setImageSizePreference: setImageSize,
-    cartGroupMode: groupMode,
-    setCartGroupMode: setGroupMode,
-  } = useAuth();
+  const { session, isPortalAdmin, clientRoles, cartGroupMode: groupMode, setCartGroupMode: setGroupMode } = useAuth();
+  const [imageSize, setImageSize] = useImageSize('cart');
   const showImages = imageSize !== 'hide';
   // Shonrei staff or this client's own admin -- a plain buyer/store-admin
   // doesn't get this shortcut (2026-09-15 request: quick-submit next to

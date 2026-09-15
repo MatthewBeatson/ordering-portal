@@ -13,6 +13,57 @@ import type { ClientAddress } from '@/lib/types';
 import { parseCsv, downloadCsv } from '@/lib/csv';
 import { formatAddress } from '@/lib/format';
 
+// Personal, every-role setting (034_user_image_size_scope.sql):
+// whether the Catalogue/Cart/Order Detail image-size toggle stays one
+// shared value (existing behaviour, and the default) or each of the
+// three pages remembers its own independently. Plain radio inputs
+// rather than the app's usual small button-toggle components -- this
+// is a one-off with real explanatory copy under each option, not a
+// quick in-line switch.
+function ImageSizeScopeSetting() {
+  const { imageSizeScope, setImageSizeScope } = useAuth();
+  return (
+    <Card className="p-4">
+      <div className="mb-1 text-sm font-medium">Image size toggle</div>
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        Choose how the image size setting on Catalogue, Cart, and Order Detail behaves.
+      </p>
+      <div className="flex flex-col gap-3">
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="radio"
+            name="image-size-scope"
+            className="mt-0.5"
+            checked={imageSizeScope === 'shared'}
+            onChange={() => setImageSizeScope('shared')}
+          />
+          <span className="text-sm">
+            <span className="font-medium">Same for every page</span>
+            <span className="block text-xs text-[var(--muted-foreground)]">
+              Default. Changing the image size on one page updates it on all three.
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2">
+          <input
+            type="radio"
+            name="image-size-scope"
+            className="mt-0.5"
+            checked={imageSizeScope === 'per_page'}
+            onChange={() => setImageSizeScope('per_page')}
+          />
+          <span className="text-sm">
+            <span className="font-medium">Remember per page</span>
+            <span className="block text-xs text-[var(--muted-foreground)]">
+              Each page keeps its own last-used image size independently.
+            </span>
+          </span>
+        </label>
+      </div>
+    </Card>
+  );
+}
+
 // Client-admins and Shonrei staff manage store reference numbers --
 // and now whole stores -- directly here instead of needing Supabase
 // dashboard access. Store numbers feed the (not-yet-built) auto
@@ -61,6 +112,11 @@ export default function Account() {
         <h1 className="text-lg font-semibold">Account</h1>
         <p className="text-sm text-[var(--muted-foreground)]">Manage stores and their reference numbers for your client{clients.length !== 1 ? 's' : ''}.</p>
       </div>
+
+      {/* Every signed-in user gets this, unlike the store-management
+          section below (empty for a plain buyer with no client to
+          manage) -- the image-size toggle applies to every role. */}
+      <ImageSizeScopeSetting />
 
       {clients.length === 0 ? (
         <Card className="p-6 text-sm text-[var(--muted-foreground)]">No clients to manage.</Card>

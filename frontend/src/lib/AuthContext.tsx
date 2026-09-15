@@ -33,9 +33,18 @@ interface AuthState {
   mfaRequired: MfaRequiredCode | null;
   /** Re-checks MFA status after a successful enroll/challenge, clearing mfaRequired if satisfied. */
   refreshMfaStatus: () => Promise<void>;
-  /** Catalog/Cart/OrderDetail's shared image-size toggle -- persisted per-user (see 021_user_image_size_preference.sql) so it's the same on next login, any device. 'small' until the real value loads. */
+  /** Catalog/Cart/OrderDetail's shared image-size toggle -- persisted per-user (see 021_user_image_size_preference.sql) so it's the same on next login, any device. 'small' until the real value loads. Only actually used when imageSizeScope is 'shared' -- see useImageSize.ts for the per-page hook every page should call instead of reading this directly. */
   imageSizePreference: 'hide' | 'small' | 'large';
   setImageSizePreference: (v: 'hide' | 'small' | 'large') => void;
+  /** Whether the image-size toggle above is one shared value across all three pages ('shared', the default and prior-only behaviour) or each page remembers its own independently ('per_page') -- see 034_user_image_size_scope.sql. */
+  imageSizeScope: 'shared' | 'per_page';
+  setImageSizeScope: (v: 'shared' | 'per_page') => void;
+  catalogImageSize: 'hide' | 'small' | 'large';
+  setCatalogImageSize: (v: 'hide' | 'small' | 'large') => void;
+  cartImageSize: 'hide' | 'small' | 'large';
+  setCartImageSize: (v: 'hide' | 'small' | 'large') => void;
+  orderDetailImageSize: 'hide' | 'small' | 'large';
+  setOrderDetailImageSize: (v: 'hide' | 'small' | 'large') => void;
   /** The "By display system"/"By product type"/"Custom" grouping toggle, persisted per-user PER PAGE (031_user_group_mode_preference.sql) -- each of the three pages remembers its own last-used mode independently, same next-login-any-device persistence as image size. 'display' until the real value loads. */
   catalogGroupMode: GroupMode;
   setCatalogGroupMode: (v: GroupMode) => void;
@@ -58,6 +67,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mfaRequired, setMfaRequired] = React.useState<MfaRequiredCode | null>(null);
   const [companyName, setCompanyName] = React.useState<string | null>(null);
   const [imageSizePreference, setImageSizePreferenceState] = React.useState<'hide' | 'small' | 'large'>('small');
+  const [imageSizeScope, setImageSizeScopeState] = React.useState<'shared' | 'per_page'>('shared');
+  const [catalogImageSize, setCatalogImageSizeState] = React.useState<'hide' | 'small' | 'large'>('small');
+  const [cartImageSize, setCartImageSizeState] = React.useState<'hide' | 'small' | 'large'>('small');
+  const [orderDetailImageSize, setOrderDetailImageSizeState] = React.useState<'hide' | 'small' | 'large'>('small');
   const [catalogGroupMode, setCatalogGroupModeState] = React.useState<GroupMode>('display');
   const [cartGroupMode, setCartGroupModeState] = React.useState<GroupMode>('display');
   const [orderDetailGroupMode, setOrderDetailGroupModeState] = React.useState<GroupMode>('display');
@@ -95,12 +108,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.from('user_client_roles').select('client_id, role').eq('user_id', userId),
       supabase
         .from('user_preferences')
-        .select('image_size, catalog_group_mode, cart_group_mode, order_detail_group_mode')
+        .select(
+          'image_size, image_size_scope, catalog_image_size, cart_image_size, order_detail_image_size, catalog_group_mode, cart_group_mode, order_detail_group_mode'
+        )
         .eq('user_id', userId)
         .maybeSingle(),
     ]);
 
     if (prefsRow?.image_size) setImageSizePreferenceState(prefsRow.image_size as 'hide' | 'small' | 'large');
+    if (prefsRow?.image_size_scope) setImageSizeScopeState(prefsRow.image_size_scope as 'shared' | 'per_page');
+    if (prefsRow?.catalog_image_size) setCatalogImageSizeState(prefsRow.catalog_image_size as 'hide' | 'small' | 'large');
+    if (prefsRow?.cart_image_size) setCartImageSizeState(prefsRow.cart_image_size as 'hide' | 'small' | 'large');
+    if (prefsRow?.order_detail_image_size) setOrderDetailImageSizeState(prefsRow.order_detail_image_size as 'hide' | 'small' | 'large');
     if (prefsRow?.catalog_group_mode) setCatalogGroupModeState(prefsRow.catalog_group_mode as GroupMode);
     if (prefsRow?.cart_group_mode) setCartGroupModeState(prefsRow.cart_group_mode as GroupMode);
     if (prefsRow?.order_detail_group_mode) setOrderDetailGroupModeState(prefsRow.order_detail_group_mode as GroupMode);
@@ -195,6 +214,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMfaRequired(null);
         setCompanyName(null);
         setImageSizePreferenceState('small');
+        setImageSizeScopeState('shared');
+        setCatalogImageSizeState('small');
+        setCartImageSizeState('small');
+        setOrderDetailImageSizeState('small');
         setCatalogGroupModeState('display');
         setCartGroupModeState('display');
         setOrderDetailGroupModeState('display');
@@ -233,6 +256,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .upsert({ user_id: userId, image_size: v, updated_at: new Date().toISOString() })
         .then(({ error }) => {
           if (error) console.error('Failed to save image size preference:', error.message);
+        });
+    },
+    [session]
+  );
+
+  const setImageSizeScope = React.useCallback(
+    (v: 'shared' | 'per_page') => {
+      setImageSizeScopeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, image_size_scope: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save image size scope preference:', error.message);
+        });
+    },
+    [session]
+  );
+
+  // Same optimistic-then-persist shape as setImageSizePreference, one
+  // per page -- only ever read/written when imageSizeScope is
+  // 'per_page' (see useImageSize.ts).
+  const setCatalogImageSize = React.useCallback(
+    (v: 'hide' | 'small' | 'large') => {
+      setCatalogImageSizeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, catalog_image_size: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save catalogue image size preference:', error.message);
+        });
+    },
+    [session]
+  );
+  const setCartImageSize = React.useCallback(
+    (v: 'hide' | 'small' | 'large') => {
+      setCartImageSizeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, cart_image_size: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save cart image size preference:', error.message);
+        });
+    },
+    [session]
+  );
+  const setOrderDetailImageSize = React.useCallback(
+    (v: 'hide' | 'small' | 'large') => {
+      setOrderDetailImageSizeState(v);
+      const userId = session?.user.id;
+      if (!userId) return;
+      supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId, order_detail_image_size: v, updated_at: new Date().toISOString() })
+        .then(({ error }) => {
+          if (error) console.error('Failed to save order detail image size preference:', error.message);
         });
     },
     [session]
@@ -315,6 +399,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshMfaStatus,
     imageSizePreference,
     setImageSizePreference,
+    imageSizeScope,
+    setImageSizeScope,
+    catalogImageSize,
+    setCatalogImageSize,
+    cartImageSize,
+    setCartImageSize,
+    orderDetailImageSize,
+    setOrderDetailImageSize,
     catalogGroupMode,
     setCatalogGroupMode,
     cartGroupMode,

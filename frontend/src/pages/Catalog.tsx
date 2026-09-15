@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/AuthContext';
 import { useActiveClient } from '@/lib/ActiveClientContext';
 import { useMyStores } from '@/lib/useStores';
 import { useClientCatalog, type ProductRow } from '@/lib/useClientCatalog';
+import { useImageSize } from '@/lib/useImageSize';
 import { tierPrice } from '@/lib/pricing';
 import { money } from '@/lib/format';
 import { Button } from '@/components/ui/button';
@@ -40,12 +41,8 @@ const FACETS: { key: FacetKey; label: string; getRef: (p: ProductRow) => FacetRe
 export default function Catalog() {
   const cart = useCart();
   const { data: stores, isLoading: storesLoading } = useMyStores();
-  const {
-    imageSizePreference: imageSize,
-    setImageSizePreference: setImageSize,
-    catalogGroupMode: groupMode,
-    setCatalogGroupMode: setGroupMode,
-  } = useAuth();
+  const { catalogGroupMode: groupMode, setCatalogGroupMode: setGroupMode } = useAuth();
+  const [imageSize, setImageSize] = useImageSize('catalog');
   const showImages = imageSize !== 'hide';
 
   // Two-way link with the shared "active client" (see

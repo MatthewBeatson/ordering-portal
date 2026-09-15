@@ -1,5 +1,6 @@
 import * as React from 'react';
 import type { CartLine } from './types';
+import { useAuth } from './AuthContext';
 
 // A cart isn't a server-side concept -- it's local state until
 // "submit order" fires a single POST /orders with a lines[] array.
@@ -30,6 +31,27 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [storeId, setStoreId] = React.useState<string | null>(null);
   const [lines, setLines] = React.useState<CartLine[]>([]);
   const [editingOrderId, setEditingOrderId] = React.useState<string | null>(null);
+
+  // This state has always been in-memory-only for the life of the page
+  // load, with no concept of "whose cart this is" -- CartProvider sits
+  // above <App/> permanently (main.tsx), so it was never cleared on
+  // sign-out/sign-in. Switching accounts in the same browser tab
+  // without a full page reload (e.g. staff signing out to test a
+  // client login) previously left the PREVIOUS user's lines/store
+  // dangling and visible in the new session -- real report, 2026-09-15.
+  // Resets whenever the signed-in user actually changes (including to
+  // signed-out); a plain token refresh for the SAME user leaves it
+  // alone.
+  const { session } = useAuth();
+  const userId = session?.user.id ?? null;
+  const prevUserIdRef = React.useRef(userId);
+  React.useEffect(() => {
+    if (prevUserIdRef.current === userId) return;
+    prevUserIdRef.current = userId;
+    setStoreId(null);
+    setLines([]);
+    setEditingOrderId(null);
+  }, [userId]);
 
   const setStore = React.useCallback((id: string) => setStoreId(id), []);
 
