@@ -213,14 +213,15 @@ export default function Cart() {
               ['Cart', orderStore?.name, orderStore?.store_number].filter(Boolean).join(' - ')
             )}
           </h1>
-          {/* Exact mirror of Catalog's own "Ordering for" switcher (same
-              options/onSelect/cart-clearing-confirm logic) -- moved beside
-              the heading here instead of labeled off to the right, and
-              always blank (clearAfterSelect) rather than showing the
-              current store: this box is purely "switch catalog/pricing
-              context", a different concept from the Store card below
-              (which store the ORDER is placed for), so it must never look
-              like it's displaying that order-store's value. */}
+          {/* Mirrors Catalog's own "Ordering for" switcher (same options +
+              cart-clearing-confirm logic) -- moved beside the heading here
+              instead of labeled off to the right, and always blank
+              (clearAfterSelect) rather than showing the current store, so
+              it always reads as "search again" not "here's what's
+              selected". Uses pickOrderStore (not a raw cart.setStore) so
+              picking here also updates which store the ORDER is for --
+              the same single "current store" the Store card and heading
+              below reflect, not a second disconnected concept. */}
           {stores && stores.length > 1 && (
             <div className="w-64">
               <SearchCombobox
@@ -235,7 +236,7 @@ export default function Cart() {
                     if (!ok) return;
                     cart.clear();
                   }
-                  cart.setStore(o.id);
+                  pickOrderStore(o.id);
                 }}
                 placeholder="Search store number or name..."
               />
@@ -255,7 +256,7 @@ export default function Cart() {
       </div>
 
       {products && products.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex w-full flex-col gap-2 md:w-1/2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
           <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
         </div>

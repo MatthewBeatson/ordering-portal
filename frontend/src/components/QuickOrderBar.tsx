@@ -182,6 +182,16 @@ export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPr
               if (selected) setSelected(null);
             }}
             onKeyDown={handleSearchKeyDown}
+            // Select any pre-filled text on focus/click so a single click
+            // then typing replaces it outright, same as the store-search
+            // boxes (SearchCombobox) elsewhere in the app. Deferred a
+            // frame for the same reason as there: a synchronous select()
+            // can be undone by a same-tick re-render reassigning this
+            // controlled input's value.
+            onFocus={(e) => {
+              const el = e.target;
+              requestAnimationFrame(() => el.select());
+            }}
             placeholder="Quick add — type a SKU or name, Tab to pick..."
             className="h-8 w-full border-none bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]"
           />
