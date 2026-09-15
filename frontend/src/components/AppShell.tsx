@@ -34,7 +34,7 @@ export function AppShell() {
           </NavLink>
           <NavLink to="/cart" className={navLinkClass}>
             <ShoppingCart className="h-4 w-4" />
-            Cart
+            Cart / Quick Ordering
             {count > 0 && <span className="ml-auto rounded-full bg-[var(--accent)] px-1.5 text-xs text-white">{count}</span>}
           </NavLink>
           <NavLink to="/orders" className={navLinkClass}>
