@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Badge } from '@/components/ui/badge';
-import { QuickOrderBar } from '@/components/QuickOrderBar';
 import { ImageSizeToggle, IMAGE_SIZE_CLASS, IMAGE_COL_CLASS } from '@/components/ImageSizeToggle';
 import { GroupModeToggle } from '@/components/GroupModeToggle';
 import { SearchCombobox } from '@/components/SearchCombobox';
@@ -289,7 +288,7 @@ export default function Catalog() {
   }
 
   if (productsError) {
-    return <Card className="p-6 text-sm text-[var(--danger)]">Couldn't load the catalog: {(productsError as Error).message}</Card>;
+    return <Card className="p-6 text-sm text-[var(--danger)]">Couldn't load the catalogue: {(productsError as Error).message}</Card>;
   }
 
   return (
@@ -300,7 +299,7 @@ export default function Catalog() {
             useMyStores' RLS-backed query) -- this can never resolve to a client the
             viewer doesn't have access to, so this heading can never leak another
             client's name (e.g. Signet showing while a Prouds store is active). */}
-        <h1 className="text-lg font-semibold">{['Catalog', client?.name].filter(Boolean).join(' - ')}</h1>
+        <h1 className="text-lg font-semibold">{['Catalogue', client?.name].filter(Boolean).join(' - ')}</h1>
 
         <div className="flex items-center gap-3">
           {stores.length > 1 && (
@@ -333,75 +332,64 @@ export default function Catalog() {
         </div>
       </div>
 
-      {/* Two clearly separate sections: browse/search on the left, the
-          rapid-entry quick-add bar on the right -- deliberately not
-          styled the same way as each other so they don't get confused
-          for one search box. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
-        <div className="flex flex-col gap-3">
-          <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Browse &amp; search</div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative w-full max-w-sm">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
-              <Input
-                placeholder="Search SKU, name, description..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-
-            <GroupModeToggle value={groupMode} onChange={setGroupMode} />
+      {/* Quick add lives on Cart only now (2026-09-15) -- Catalogue is
+          pure browse/search. */}
+      <div className="flex flex-col gap-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Browse &amp; search</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-full max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <Input
+              placeholder="Search SKU, name, description..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
 
-          {groupMode === 'display' && displaySystemChips.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {/* Multi-select (028) -- a product can belong to more than
-                  one display system, so this is the same toggle-chips
-                  pattern as the FACETS below, not single-select. */}
-              {displaySystemChips.map((ds) => (
-                <button key={ds.id} onClick={() => toggleDisplaySystem(ds.id)}>
-                  <Badge tone={selectedDisplaySystemIds.has(ds.id) ? 'accent' : 'muted'}>{ds.name}</Badge>
+          <GroupModeToggle value={groupMode} onChange={setGroupMode} />
+        </div>
+
+        {groupMode === 'display' && displaySystemChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* Multi-select (028) -- a product can belong to more than
+                one display system, so this is the same toggle-chips
+                pattern as the FACETS below, not single-select. */}
+            {displaySystemChips.map((ds) => (
+              <button key={ds.id} onClick={() => toggleDisplaySystem(ds.id)}>
+                <Badge tone={selectedDisplaySystemIds.has(ds.id) ? 'accent' : 'muted'}>{ds.name}</Badge>
+              </button>
+            ))}
+            {selectedDisplaySystemIds.size > 0 && (
+              <button
+                onClick={() => setSelectedDisplaySystemIds(new Set())}
+                className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
+        {visibleFacets.map((facet) =>
+          facetChips[facet.key]?.length > 0 ? (
+            <div key={facet.key} className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-[var(--muted-foreground)]">{facet.label}:</span>
+              {facetChips[facet.key].map((ref) => (
+                <button key={ref.id} onClick={() => toggleFacet(facet.key, ref.id)}>
+                  <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
                 </button>
               ))}
-              {selectedDisplaySystemIds.size > 0 && (
+              {facetSelections[facet.key].size > 0 && (
                 <button
-                  onClick={() => setSelectedDisplaySystemIds(new Set())}
+                  onClick={() => setFacetSelections((prev) => ({ ...prev, [facet.key]: new Set<string>() }))}
                   className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
                 >
                   Clear
                 </button>
               )}
             </div>
-          )}
-
-          {visibleFacets.map((facet) =>
-            facetChips[facet.key]?.length > 0 ? (
-              <div key={facet.key} className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs text-[var(--muted-foreground)]">{facet.label}:</span>
-                {facetChips[facet.key].map((ref) => (
-                  <button key={ref.id} onClick={() => toggleFacet(facet.key, ref.id)}>
-                    <Badge tone={facetSelections[facet.key].has(ref.id) ? 'accent' : 'muted'}>{ref.name}</Badge>
-                  </button>
-                ))}
-                {facetSelections[facet.key].size > 0 && (
-                  <button
-                    onClick={() => setFacetSelections((prev) => ({ ...prev, [facet.key]: new Set<string>() }))}
-                    className="text-xs font-medium text-[var(--muted-foreground)] underline hover:text-[var(--foreground)]"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            ) : null
-          )}
-        </div>
-
-        {products && products.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-            <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
-          </div>
+          ) : null
         )}
       </div>
 

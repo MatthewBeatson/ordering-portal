@@ -33,12 +33,18 @@ export default function Cart() {
   // full hide/small/large cycle as Catalog/Order Detail now.
   const {
     session,
+    isPortalAdmin,
+    clientRoles,
     imageSizePreference: imageSize,
     setImageSizePreference: setImageSize,
     cartGroupMode: groupMode,
     setCartGroupMode: setGroupMode,
   } = useAuth();
   const showImages = imageSize !== 'hide';
+  // Shonrei staff or this client's own admin -- a plain buyer/store-admin
+  // doesn't get this shortcut (2026-09-15 request: quick-submit next to
+  // Quick add, admin-only).
+  const isAdminUser = isPortalAdmin || clientRoles.length > 0;
   const { data: thumbnails } = useProductThumbnails(showImages ? cart.lines.map((l) => l.sku) : []);
 
   const currentStore = stores?.find((s) => s.id === cart.storeId);
@@ -258,7 +264,31 @@ export default function Cart() {
       {products && products.length > 0 && (
         <div className="flex w-full flex-col gap-2 md:w-1/2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-          <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
+            </div>
+            {/* Shortcut for staff/client-admins to submit right after a
+                quick-add pass, without scrolling to the bottom button --
+                a plain buyer/store-admin never sees this (2026-09-15). */}
+            {isAdminUser && (
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => submit.mutate()}
+                  disabled={submit.isPending || !orderStoreId || isEmpty}
+                >
+                  {submit.isPending ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : 'Submit order'}
+                </Button>
+                <span className="text-[10px] leading-tight text-[var(--muted-foreground)]">
+                  seen by
+                  <br />
+                  admin users only
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -268,7 +298,7 @@ export default function Cart() {
             ? 'No lines left in this order. Add products above, or cancel to leave the order unchanged.'
             : (
               <>
-                Your cart is empty. Add products above, or from the <a href="/" className="text-[var(--accent)] hover:underline">catalog</a>.
+                Your cart is empty. Add products above, or from the <a href="/" className="text-[var(--accent)] hover:underline">catalogue</a>.
               </>
             )}
         </Card>

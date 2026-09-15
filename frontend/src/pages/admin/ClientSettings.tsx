@@ -45,7 +45,7 @@ export default function ClientSettings() {
       <div>
         <h1 className="text-lg font-semibold">Client settings</h1>
         <p className="text-sm text-[var(--muted-foreground)]">
-          Show or hide pricing (Catalog price column, quick-add prices, Cart/Order Detail totals) per client. This only
+          Show or hide pricing (Catalogue price column, quick-add prices, Cart/Order Detail totals) per client. This only
           controls what a client's buyers see -- unit prices still flow through to Cin7 for invoicing either way.
         </p>
       </div>

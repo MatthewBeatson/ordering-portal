@@ -169,7 +169,7 @@ export default function CustomGrouping() {
       <div>
         <h1 className="text-lg font-semibold">Custom grouping</h1>
         <p className="text-sm text-[var(--muted-foreground)]">
-          Define fixed tray/base -&gt; insert pairings for the "Custom" view on Catalog, Cart, and Order Detail -- e.g. a
+          Define fixed tray/base -&gt; insert pairings for the "Custom" view on Catalogue, Cart, and Order Detail -- e.g. a
           specific tray always shows its specific inserts listed directly underneath, regardless of display system or
           product type. A product not part of any rule below just falls into "Ungrouped" in that view.
         </p>

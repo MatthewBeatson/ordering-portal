@@ -30,7 +30,7 @@ export function AppShell() {
         <nav className="flex flex-1 flex-col gap-1">
           <NavLink to="/" end className={navLinkClass}>
             <LayoutGrid className="h-4 w-4" />
-            Catalog
+            Catalogue
           </NavLink>
           <NavLink to="/cart" className={navLinkClass}>
             <ShoppingCart className="h-4 w-4" />
