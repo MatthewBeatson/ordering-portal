@@ -220,7 +220,9 @@ export default function Cart() {
       if (stores && stores.length === 1) pickOrderStore(stores[0].id);
       setQuickSubmitted({ label: vars.label, orderId: order.id });
       invalidateOrders();
-      requestAnimationFrame(() => storeSearchRef.current?.focus());
+      // setTimeout, not requestAnimationFrame: rAF never fires in a tab that
+      // isn't painting (backgrounded), which would silently skip the focus.
+      window.setTimeout(() => storeSearchRef.current?.focus(), 0);
     },
     onError: (err: Error) => setQuickError(err.message),
   });
@@ -314,7 +316,7 @@ export default function Cart() {
       {products && products.length > 0 && (
         <div className="flex w-full flex-col gap-2 md:w-1/2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1">
               <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
             </div>
@@ -323,7 +325,7 @@ export default function Cart() {
                 while editing an existing order (that's the bottom
                 "Save changes" button's job). */}
             {isAdminUser && !isEditing && (
-              <div className="flex flex-shrink-0 items-center gap-1.5">
+              <div className="mb-2.5 flex flex-shrink-0 items-center gap-1.5">
                 <Button
                   size="sm"
                   variant="primary"
