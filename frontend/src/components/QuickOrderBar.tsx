@@ -192,6 +192,10 @@ export function QuickOrderBar({ products, clientSkuByProduct, tierNumber, showPr
               const el = e.target;
               requestAnimationFrame(() => el.select());
             }}
+            // This box is auto-focused on page load, so most clicks land
+            // on an ALREADY-focused input (no focus event) -- select on
+            // click too so one click always selects everything.
+            onClick={(e) => e.currentTarget.select()}
             placeholder="Quick add — type a SKU or name, Tab to pick..."
             className="h-8 w-full border-none bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]"
           />
