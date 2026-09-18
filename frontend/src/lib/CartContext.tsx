@@ -20,6 +20,9 @@ interface CartState {
   removeLine: (sku: string) => void;
   setQuantity: (sku: string, quantity: number) => void;
   clear: () => void;
+  // Lines AND store AND any in-progress edit -- a full "start a fresh
+  // order" (Cart's admin quick-submit), vs clear() which keeps the store.
+  reset: () => void;
   count: number;
   startEditingOrder: (orderId: string, storeId: string) => void;
   stopEditing: () => void;
@@ -75,6 +78,12 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   const clear = React.useCallback(() => setLines([]), []);
 
+  const reset = React.useCallback(() => {
+    setLines([]);
+    setStoreId(null);
+    setEditingOrderId(null);
+  }, []);
+
   // Clears any current cart lines so the edited order's own lines are
   // the only thing hydrated in -- Cart.tsx fetches the order and
   // populates from scratch once this is set.
@@ -92,7 +101,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CartContext.Provider
-      value={{ storeId, lines, editingOrderId, setStore, addLine, removeLine, setQuantity, clear, count, startEditingOrder, stopEditing }}
+      value={{ storeId, lines, editingOrderId, setStore, addLine, removeLine, setQuantity, clear, reset, count, startEditingOrder, stopEditing }}
     >
       {children}
     </CartContext.Provider>

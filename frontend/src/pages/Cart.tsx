@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCart } from '@/lib/CartContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useMyStores } from '@/lib/useStores';
@@ -28,8 +28,16 @@ export default function Cart() {
   const cart = useCart();
   const { data: stores } = useMyStores();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [notes, setNotes] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  // Admin quick-submit (see quickSubmit below): its own error/confirmation
+  // state, since the bottom block's `error` line can be far off-screen
+  // from the button and the page resets in place instead of navigating
+  // away to an order page that would otherwise show the outcome.
+  const [quickError, setQuickError] = React.useState<string | null>(null);
+  const [quickSubmitted, setQuickSubmitted] = React.useState<{ label: string; orderId: string } | null>(null);
+  const storeSearchRef = React.useRef<HTMLInputElement>(null);
   // Shared, per-user-persisted preference (see AuthContext) -- same
   // full hide/small/large cycle as Catalog/Order Detail now.
   const { session, isPortalAdmin, clientRoles, cartGroupMode: groupMode, setCartGroupMode: setGroupMode } = useAuth();
@@ -165,22 +173,56 @@ export default function Cart() {
   }, [currentStore?.id, resolvedDefaultId]);
   const selectedAddress = addresses?.find((a) => a.id === selectedAddressId);
 
+  function submitOrder() {
+    if (!orderStoreId) throw new Error('Select which store this order is for.');
+    const lines = cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
+    if (cart.editingOrderId) {
+      return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
+    }
+    return ordersApi.create({ store_id: orderStoreId, notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
+  }
+
+  // Orders lists (Approvals' pending list in particular) are cached 30s
+  // -- without this a just-submitted order can be missing from them.
+  const invalidateOrders = () => queryClient.invalidateQueries({ queryKey: ['orders'] });
+
   const submit = useMutation({
-    mutationFn: () => {
-      if (!orderStoreId) throw new Error('Select which store this order is for.');
-      const lines = cart.lines.map((l) => ({ sku: l.sku, description: l.description, quantity: l.quantity, unit_price: l.unit_price }));
-      if (cart.editingOrderId) {
-        return ordersApi.update(cart.editingOrderId, { notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
-      }
-      return ordersApi.create({ store_id: orderStoreId, notes: notes || undefined, lines, shipping_client_address_id: selectedAddressId });
-    },
+    mutationFn: submitOrder,
     onSuccess: (order) => {
       const wasEditing = !!cart.editingOrderId;
       cart.stopEditing();
       cart.clear();
+      invalidateOrders();
       navigate(`/orders/${order.id}`, wasEditing ? { replace: true } : undefined);
     },
     onError: (err: Error) => setError(err.message),
+  });
+
+  // Staff/client-admin shortcut for entering many orders back to back:
+  // same order creation as the normal Submit (it lands as a pending order
+  // in Approvals, where it's confirmed -- and so synced to Cin7 -- the
+  // usual way, singly or in bulk), but instead of navigating to the new
+  // order it resets this page in place -- lines, notes AND store all
+  // cleared, so the next order has to start with an explicit store pick
+  // (never silently inherits the last one) -- and puts the cursor
+  // straight back in the store search box.
+  const quickSubmit = useMutation({
+    mutationFn: (_vars: { label: string }) => submitOrder(),
+    onMutate: () => setQuickError(null),
+    onSuccess: (order, vars) => {
+      cart.reset();
+      setOrderStoreId(null);
+      setSelectedAddressId(null);
+      setNotes('');
+      setError(null);
+      // A user with only one store has no store search box to come back to
+      // (see the stores.length > 1 gate below) -- keep their one store.
+      if (stores && stores.length === 1) pickOrderStore(stores[0].id);
+      setQuickSubmitted({ label: vars.label, orderId: order.id });
+      invalidateOrders();
+      requestAnimationFrame(() => storeSearchRef.current?.focus());
+    },
+    onError: (err: Error) => setQuickError(err.message),
   });
 
   function cancelEdit() {
@@ -228,6 +270,7 @@ export default function Cart() {
                 options={stores.map((s) => ({ id: s.id, label: [s.store_number, s.name].filter(Boolean).join(' - ') }))}
                 initialQuery=""
                 clearAfterSelect
+                inputRef={storeSearchRef}
                 onSelect={(o) => {
                   const target = stores.find((s) => s.id === o.id);
                   const isClientChange = target && currentStore && target.client_id !== currentStore.client_id;
@@ -255,6 +298,19 @@ export default function Cart() {
         </div>
       </div>
 
+      {quickSubmitted && (
+        <p className="text-sm text-[var(--success)]">
+          ✓ Submitted {quickSubmitted.label || 'order'} — waiting in{' '}
+          <Link to="/approvals" className="font-medium underline">
+            Approvals
+          </Link>{' '}
+          ·{' '}
+          <Link to={`/orders/${quickSubmitted.orderId}`} className="font-medium underline">
+            view order
+          </Link>
+        </p>
+      )}
+
       {products && products.length > 0 && (
         <div className="flex w-full flex-col gap-2 md:w-1/2">
           <div className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Quick add</div>
@@ -262,18 +318,22 @@ export default function Cart() {
             <div className="min-w-0 flex-1">
               <QuickOrderBar products={products} clientSkuByProduct={clientSkuByProduct} tierNumber={tierNumber} showPricing={showPricing} currency={currency} />
             </div>
-            {/* Shortcut for staff/client-admins to submit right after a
-                quick-add pass, without scrolling to the bottom button --
-                a plain buyer/store-admin never sees this (2026-09-15). */}
-            {isAdminUser && (
+            {/* Shortcut for staff/client-admins entering orders back to
+                back -- a plain buyer/store-admin never sees this. Hidden
+                while editing an existing order (that's the bottom
+                "Save changes" button's job). */}
+            {isAdminUser && !isEditing && (
               <div className="flex flex-shrink-0 items-center gap-1.5">
                 <Button
                   size="sm"
                   variant="primary"
-                  onClick={() => submit.mutate()}
-                  disabled={submit.isPending || !orderStoreId || isEmpty}
+                  title="Saves this order to Approvals and clears the page so you can start the next one"
+                  onClick={() =>
+                    quickSubmit.mutate({ label: [orderStore?.store_number, orderStore?.name].filter(Boolean).join(' - ') })
+                  }
+                  disabled={quickSubmit.isPending || submit.isPending || !orderStoreId || isEmpty}
                 >
-                  {submit.isPending ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : 'Submit order'}
+                  {quickSubmit.isPending ? <Spinner className="h-3.5 w-3.5 border-white/30 border-t-white" /> : 'Quick submit'}
                 </Button>
                 <span className="text-[10px] leading-tight text-[var(--muted-foreground)]">
                   seen by
@@ -283,6 +343,7 @@ export default function Cart() {
               </div>
             )}
           </div>
+          {quickError && <p className="text-xs text-[var(--danger)]">{quickError}</p>}
         </div>
       )}
 

@@ -29,6 +29,7 @@ export function SearchCombobox({
   maxResults = 8,
   disabled = false,
   clearAfterSelect = false,
+  inputRef,
 }: {
   options: SearchComboboxOption[];
   onSelect: (option: SearchComboboxOption) => void;
@@ -43,6 +44,9 @@ export function SearchCombobox({
   // "here's what's selected". Pair with initialQuery="" (the caller's
   // own selection state lives elsewhere, this box never reflects it).
   clearAfterSelect?: boolean;
+  // Lets a caller focus the box programmatically (e.g. Cart's admin
+  // quick-submit returning focus here for the next order).
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const [query, setQuery] = React.useState(initialQuery);
   const [open, setOpen] = React.useState(false);
@@ -83,6 +87,7 @@ export function SearchCombobox({
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--muted-foreground)]" />
         <Input
+          ref={inputRef}
           value={query}
           onChange={(e) => {
             committedRef.current = false;
