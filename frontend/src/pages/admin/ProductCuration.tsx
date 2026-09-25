@@ -1172,7 +1172,14 @@ function ProductImageCell({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onDelete(thumb.id);
+            // A photo here is now real, manually-sourced content, not a
+            // trivial re-upload -- confirm before permanently removing
+            // it, same window.confirm pattern as every other destructive
+            // action in this app (a stray click on a 16px badge next to
+            // a 48px thumbnail is an easy accident otherwise).
+            if (window.confirm(`Remove the image for "${product.name}"? This can't be undone -- you'd need to re-upload it.`)) {
+              onDelete(thumb.id);
+            }
           }}
           title="Remove image"
           className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--danger)] text-white"
