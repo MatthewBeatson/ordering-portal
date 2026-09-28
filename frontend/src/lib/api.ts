@@ -211,10 +211,23 @@ export interface ClientUser {
   default_shipping_address_id: string | null;
 }
 
+export interface SuburbNameCollision {
+  suburb: string;
+  stores: { store_number: string; state: string | null }[];
+}
+
 export const clientsApi = {
   listManageable: () => request<{ clients: ManageableClient[] }>('GET', '/clients'),
   updateShowPricing: (id: string, showPricing: boolean) =>
     request<{ id: string; name: string; show_pricing: boolean }>('PATCH', `/clients/${id}/show-pricing`, { show_pricing: showPricing }),
+  // Staff-only. Re-pulls this client's Addresses from Cin7 (014) --
+  // upserts on Cin7's own address ID (existing addresses update in
+  // place, nothing doubles up) and prunes anything Cin7 no longer has.
+  // suburbNameCollisions (036) is the standing cross-state suburb-name
+  // check, run automatically as part of every sync -- non-empty only
+  // when a real risk exists (two differently-stated stores share a
+  // suburb name AND a Cin7 address now exists for it).
+  syncAddresses: (id: string) => request<{ synced: number; suburbNameCollisions: SuburbNameCollision[] }>('POST', `/clients/${id}/sync-addresses`),
   listUsers: (clientId: string) => request<{ users: ClientUser[] }>('GET', `/clients/${clientId}/users`).then((r) => r.users),
   setUserDefaultShippingAddress: (clientId: string, userId: string, addressId: string | null) =>
     request<{ user_id: string; default_shipping_address_id: string | null }>('PATCH', `/clients/${clientId}/users/${userId}/default-shipping-address`, {

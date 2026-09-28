@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { storesApi, clientsApi, type ManageableStore } from '@/lib/api';
+import { storesApi, clientsApi, type ManageableStore, type SuburbNameCollision } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/AuthContext';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Check, Plus, Download, Upload } from 'lucide-react';
+import { Check, Plus, Download, Upload, RefreshCw } from 'lucide-react';
 import { SearchCombobox } from '@/components/SearchCombobox';
 import type { ClientAddress } from '@/lib/types';
 import { parseCsv, downloadCsv } from '@/lib/csv';
@@ -228,6 +228,23 @@ function ClientStoreGroup({
     },
   });
 
+  // Staff-only (backend-enforced too). Re-pulls this client's Addresses
+  // straight from Cin7 -- safe to run any time: existing addresses
+  // update in place (upserted on Cin7's own address ID) and anything
+  // Cin7 no longer has gets pruned, never duplicated. The one thing
+  // this can newly affect is store<->address search tagging (035) --
+  // if a fresh address arrives for a suburb name two different-state
+  // stores share, that tag could now be wrong, so every sync runs the
+  // standing collision check (036) and surfaces it here.
+  const [syncResult, setSyncResult] = React.useState<{ synced: number; suburbNameCollisions: SuburbNameCollision[] } | null>(null);
+  const syncAddresses = useMutation({
+    mutationFn: () => clientsApi.syncAddresses(clientId),
+    onSuccess: (result) => {
+      setSyncResult(result);
+      onChanged();
+    },
+  });
+
   // Expects a header row (store_number,address -- order matters, names
   // don't) from a client-supplied sheet -- see storesApi.importAddresses'
   // matching logic (text-matches "address" against this client's
@@ -269,6 +286,12 @@ function ClientStoreGroup({
               e.target.value = '';
             }}
           />
+          {isPortalAdmin && (
+            <Button size="sm" variant="ghost" disabled={syncAddresses.isPending} onClick={() => syncAddresses.mutate()} title="Re-pull this client's addresses from Cin7">
+              {syncAddresses.isPending ? <Spinner className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Sync addresses
+            </Button>
+          )}
           <Button size="sm" variant="ghost" disabled={stores.length === 0} onClick={handleExport}>
             <Download className="h-3.5 w-3.5" />
             Export addresses
@@ -293,6 +316,29 @@ function ClientStoreGroup({
         </div>
       </div>
 
+      {syncAddresses.isError && <p className="text-sm text-[var(--danger)]">{(syncAddresses.error as Error).message}</p>}
+      {syncResult && (
+        <Card className="p-3 text-xs">
+          <p className="text-[var(--success)]">Synced {syncResult.synced} address{syncResult.synced === 1 ? '' : 'es'} from Cin7.</p>
+          {syncResult.suburbNameCollisions.length > 0 && (
+            <div className="mt-1 text-[var(--danger)]">
+              <p>
+                {syncResult.suburbNameCollisions.length} suburb name{syncResult.suburbNameCollisions.length === 1 ? '' : 's'} shared by
+                stores in different states now {syncResult.suburbNameCollisions.length === 1 ? 'has' : 'have'} a matching Cin7 address --
+                check these store's search tags aren't crossed:
+              </p>
+              <ul className="mt-1 list-disc pl-4">
+                {syncResult.suburbNameCollisions.map((c, i) => (
+                  <li key={i}>
+                    <span className="font-mono capitalize">{c.suburb}</span>:{' '}
+                    {c.stores.map((s) => `${s.store_number} (${s.state ?? 'unknown state'})`).join(', ')}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Card>
+      )}
       {importAddresses.isError && <p className="text-sm text-[var(--danger)]">{(importAddresses.error as Error).message}</p>}
       {importResult && (
         <Card className="p-3 text-xs">
