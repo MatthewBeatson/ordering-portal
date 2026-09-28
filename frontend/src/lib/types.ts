@@ -152,6 +152,13 @@ export interface ClientAddress {
   state: string | null;
   postcode: string | null;
   country: string | null;
+  // The store number this address physically belongs to, e.g. "PR#443"
+  // (035) -- portal-maintained only, Cin7 has no such field on an
+  // address. null for most addresses (JPL-AU's 438 stores mostly share
+  // the 2 head-office defaults; only ~60 of the 122 synced addresses
+  // correspond 1:1 to a real store number). Lets Cart's delivery-
+  // address search match on the store number, not just the address text.
+  store_number: string | null;
 }
 
 export interface CartLine {

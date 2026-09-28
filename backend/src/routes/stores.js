@@ -42,7 +42,7 @@ router.patch(
 router.post(
   '/import-addresses',
   asyncHandler(async (req, res) => {
-    const result = await storesService.importAddressMatches(req, req.body?.client_id, req.body?.rows);
+    const result = await storesService.importAddressMatches(req, req.body?.client_id, req.body?.rows, req.body?.target);
     res.json(result);
   })
 );

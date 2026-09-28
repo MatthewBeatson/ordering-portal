@@ -152,8 +152,18 @@ async function updateClientAddress(req, storeId, clientAddressId) {
 // insensitive substring, either direction, since a client's own
 // spreadsheet formatting won't exactly match Cin7's). Never guesses on
 // an ambiguous/missing match -- reports it instead so staff resolve it
-// by hand in the "Ship-to address" dropdown.
-async function importAddressMatches(req, clientId, rows) {
+// by hand.
+//
+// target picks WHAT a match writes -- same matching logic either way:
+//   'default' (unchanged default behaviour) sets the store's own
+//     default ship-to address (stores.client_address_id).
+//   'search' (035, added for the manual-fix path alongside the
+//     automated suburb-name tagging run once on 2026-09-29) instead
+//     tags the address with its store number (client_addresses.
+//     store_number) purely so it's findable by searching that number
+//     in Cart's delivery-address box -- never touches any store's
+//     default.
+async function importAddressMatches(req, clientId, rows, target = 'default') {
   const { isPortalAdmin, clientRoles } = req.roles;
   if (!clientId || typeof clientId !== 'string') throw new ApiError(400, 'client_id is required');
   const isClientAdminOfThisClient = clientRoles.some((r) => r.client_id === clientId);
@@ -161,6 +171,7 @@ async function importAddressMatches(req, clientId, rows) {
     throw new ApiError(403, 'You do not have permission to manage stores for this client');
   }
   if (!Array.isArray(rows) || rows.length === 0) throw new ApiError(400, 'rows must be a non-empty array');
+  if (target !== 'default' && target !== 'search') throw new ApiError(400, "target must be 'default' or 'search'");
 
   const { data: stores, error: storesErr } = await supabaseAdmin.from('stores').select('id, store_number').eq('client_id', clientId);
   if (storesErr) throw new ApiError(500, 'Failed to load stores', storesErr.message);
@@ -198,7 +209,10 @@ async function importAddressMatches(req, clientId, rows) {
       continue;
     }
 
-    const { error: updateErr } = await supabaseAdmin.from('stores').update({ client_address_id: candidates[0].id }).eq('id', store.id);
+    const { error: updateErr } =
+      target === 'search'
+        ? await supabaseAdmin.from('client_addresses').update({ store_number: storeNumber }).eq('id', candidates[0].id)
+        : await supabaseAdmin.from('stores').update({ client_address_id: candidates[0].id }).eq('id', store.id);
     if (updateErr) {
       unmatched.push({ store_number: storeNumber, reason: updateErr.message });
       continue;

@@ -203,15 +203,27 @@ function ClientStoreGroup({
     onSuccess: onChanged,
   });
 
-  const [importResult, setImportResult] = React.useState<{ matched: number; unmatched: { store_number: string; reason: string }[] } | null>(
-    null
-  );
+  const [importResult, setImportResult] = React.useState<{
+    matched: number;
+    unmatched: { store_number: string; reason: string }[];
+    target: 'default' | 'search';
+  } | null>(null);
+  // Same CSV + matching logic either way -- only what a match WRITES
+  // differs (035). 'default' (unchanged): sets the store's own default
+  // ship-to address. 'search': tags the matched address with its store
+  // number instead, purely so Cart's delivery-address search can find
+  // it by that number -- never touches any store's default. This is
+  // the manual-fix path for the handful of addresses the one-off
+  // automated suburb-name tagging (2026-09-29) couldn't resolve on its
+  // own (a shopping centre shared by several brands, or a suburb with
+  // more than one synced Cin7 address).
+  const [importTarget, setImportTarget] = React.useState<'default' | 'search'>('default');
   const importFileRef = React.useRef<HTMLInputElement>(null);
 
   const importAddresses = useMutation({
-    mutationFn: (rows: { store_number: string; address: string }[]) => storesApi.importAddresses(clientId, rows),
+    mutationFn: (rows: { store_number: string; address: string }[]) => storesApi.importAddresses(clientId, rows, importTarget),
     onSuccess: (result) => {
-      setImportResult({ matched: result.matched.length, unmatched: result.unmatched });
+      setImportResult({ matched: result.matched.length, unmatched: result.unmatched, target: importTarget });
       onChanged();
     },
   });
@@ -261,6 +273,15 @@ function ClientStoreGroup({
             <Download className="h-3.5 w-3.5" />
             Export addresses
           </Button>
+          <select
+            value={importTarget}
+            onChange={(e) => setImportTarget(e.target.value as 'default' | 'search')}
+            className="h-8 rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--card)] px-2 text-xs"
+            title="What a matched row does"
+          >
+            <option value="default">Set as store default</option>
+            <option value="search">Tag for search only</option>
+          </select>
           <Button size="sm" variant="ghost" disabled={importAddresses.isPending} onClick={() => importFileRef.current?.click()}>
             {importAddresses.isPending ? <Spinner className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
             Import addresses (CSV)
@@ -276,7 +297,8 @@ function ClientStoreGroup({
       {importResult && (
         <Card className="p-3 text-xs">
           <p className="text-[var(--success)]">
-            {importResult.matched} store{importResult.matched === 1 ? '' : 's'} matched and assigned.
+            {importResult.matched} store{importResult.matched === 1 ? '' : 's'} matched --{' '}
+            {importResult.target === 'search' ? 'addresses tagged for search.' : 'default addresses assigned.'}
           </p>
           {importResult.unmatched.length > 0 && (
             <div className="mt-1 text-[var(--muted-foreground)]">
@@ -295,7 +317,8 @@ function ClientStoreGroup({
       <p className="text-xs text-[var(--muted-foreground)]">
         CSV format: a header row, then one row per store -- <span className="font-mono">store_number,address</span>. "address" is
         matched (fuzzy, case-insensitive) against this client's synced Cin7 addresses; anything ambiguous or unmatched is
-        reported, never guessed.
+        reported, never guessed. "Set as store default" changes what ships when nothing else overrides it; "Tag for search
+        only" just makes that address findable by store number on the Cart page, without touching any store's default.
       </p>
 
       {stores.length === 0 && !showAddForm && (
