@@ -489,7 +489,10 @@ export default function Cart() {
                   ? "This client's default address."
                   : 'Overriding the default for this order only.'}
           </p>
-          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">Tip: you can search by store number (e.g. "443") to find and ship direct to that store.</p>
+          <p className="mt-0.5 text-xs text-[var(--muted-foreground)]">
+            Tip: you can search by store number (e.g. "443") to find and ship direct to that store, or by any part of the
+            address -- suburb, postcode, or state (e.g. "VIC").
+          </p>
         </Card>
       )}
 
