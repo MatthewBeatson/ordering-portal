@@ -1,0 +1,12 @@
+-- 036_stores_state.sql
+-- A store's own real-world state (QLD/NSW/VIC/ACT/SA/WA/TAS/NT), as
+-- transcribed from the Prouds/Angus & Coote/Goldmark store directory
+-- (2026-09-29 bulk import) -- independent of stores.client_address_id
+-- (which head office it DEFAULTS to; VIC and WA stores both default to
+-- the NSW office, so that column alone can't tell two different states
+-- apart). Needed for a reliable cross-state suburb-name-collision check
+-- (addressSync.js's findSuburbNameCollisions) -- matching addresses by
+-- suburb name alone risks wrongly linking two same-named but unrelated
+-- stores in different states, e.g. "The Pines" exists in both QLD and
+-- VIC.
+alter table stores add column state text;
