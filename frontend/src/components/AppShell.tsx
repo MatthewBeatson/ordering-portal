@@ -27,7 +27,7 @@ export function AppShell() {
           </div>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1">
+        <nav className="flex flex-col gap-1">
           <NavLink to="/" end className={navLinkClass}>
             <LayoutGrid className="h-4 w-4" />
             Catalogue
@@ -79,9 +79,11 @@ export function AppShell() {
           )}
         </nav>
 
-        {/* Its own divided section, distinct from both the main nav above
-            and the sign-out footer below -- Account is a settings area,
-            not part of either. */}
+        {/* Its own divided section, distinct from the main nav above --
+            Account is a settings area, not part of it. Directly
+            underneath the nav (top-aligned) rather than pushed to the
+            bottom -- the flex-1 spacer below is what pushes the
+            sign-out footer down instead. */}
         {canManageAccount && (
           <div className="mt-4 border-t border-[var(--border)] pt-4">
             <NavLink to="/account" className={navLinkClass}>
@@ -90,6 +92,8 @@ export function AppShell() {
             </NavLink>
           </div>
         )}
+
+        <div className="flex-1" />
 
         <div className="mt-4 border-t border-[var(--border)] pt-4">
           <p className="truncate px-2 text-xs text-[var(--muted-foreground)]">{session?.user.email}</p>
