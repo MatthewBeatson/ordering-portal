@@ -18,8 +18,17 @@ export function AppShell() {
   const canManageAccount = isPortalAdmin || clientRoles.length > 0;
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)] p-4">
+    // h-screen, not min-h-screen -- capping this at the viewport (rather
+    // than only a minimum) stops it stretching to match <main>'s own
+    // content height. <main> already scrolls its own long content via
+    // overflow-y-auto; without the cap here, a tall page (e.g. Catalogue
+    // with large images) stretched the WHOLE sidebar to match it,
+    // shoving the flex-1 spacer below Account into that same huge
+    // height and pushing the sign-out footer thousands of pixels down
+    // the page -- found live testing the Account-repositioning change
+    // just above (2026-09-30).
+    <div className="flex h-screen">
+      <aside className="flex w-56 flex-shrink-0 flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--card)] p-4">
         <div className="mb-6 px-2">
           <div className="text-base font-semibold">Shonrei ordering</div>
           <div className="mt-0.5 truncate text-xs text-[var(--muted-foreground)]">
