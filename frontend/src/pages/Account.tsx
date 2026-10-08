@@ -64,6 +64,82 @@ function ImageSizeScopeSetting() {
   );
 }
 
+// Lets a signed-in user set their own password without the emailed
+// "Forgot password?" round trip (which is limited by Supabase's low default
+// email quota). No current-password prompt: re-authenticating with
+// signInWithPassword would drop an MFA-enrolled session back to aal1 and
+// make the update fail, and this session has already passed login (+ 2FA
+// for admins) to get here.
+function ChangePasswordSetting() {
+  const [password, setPassword] = React.useState('');
+  const [confirm, setConfirm] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [done, setDone] = React.useState(false);
+  const [loading, setLoading] = React.useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setDone(false);
+    if (password !== confirm) {
+      setError("Passwords don't match.");
+      return;
+    }
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+    setLoading(true);
+    const { error: err } = await supabase.auth.updateUser({ password });
+    setLoading(false);
+    if (err) {
+      setError(err.message);
+      return;
+    }
+    setPassword('');
+    setConfirm('');
+    setDone(true);
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="mb-1 text-sm font-medium">Change password</div>
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        Set a new password for signing in. Use at least 8 characters.
+      </p>
+      <form onSubmit={handleSubmit} className="flex max-w-sm flex-col gap-3">
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder="New password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <Input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Confirm new password"
+          required
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+        />
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+        {done && (
+          <p className="rounded-[var(--radius)] bg-[var(--success-muted)] px-3 py-2 text-sm text-[var(--success)]">
+            Password updated.
+          </p>
+        )}
+        <div>
+          <Button type="submit" size="sm" variant="primary" disabled={loading || !password || !confirm}>
+            {loading ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : 'Update password'}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 // Client-admins and Shonrei staff manage store reference numbers --
 // and now whole stores -- directly here instead of needing Supabase
 // dashboard access. Store numbers feed the (not-yet-built) auto
@@ -117,6 +193,8 @@ export default function Account() {
           section below (empty for a plain buyer with no client to
           manage) -- the image-size toggle applies to every role. */}
       <ImageSizeScopeSetting />
+
+      <ChangePasswordSetting />
 
       {clients.length === 0 ? (
         <Card className="p-6 text-sm text-[var(--muted-foreground)]">No clients to manage.</Card>
