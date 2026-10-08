@@ -2,6 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
 const { syncOrderToCin7 } = require('../integrations/cin7/sync');
 const cin7 = require('../integrations/cin7/client');
+const { recordBulkApproval } = require('./approvalBatches');
 
 // pending -> confirmed -> in_progress -> shipped -> delivered, with
 // 'rejected' as a pre-confirm terminal state. 'in_progress' is entered
@@ -527,7 +528,15 @@ async function bulkConfirm(req) {
     confirmed.push(sanitizeOrder(synced || updated, req.roles.isPortalAdmin));
   }
 
-  return { confirmed, skipped, not_found: notFound };
+  // Saves this approval as a group and sends the notification email. Never
+  // throws -- see approvalBatches.recordBulkApproval.
+  const batchId = await recordBulkApproval(
+    req,
+    confirmed.map((o) => o.id),
+    skipped
+  );
+
+  return { confirmed, skipped, not_found: notFound, batch_id: batchId };
 }
 
 // Pre-confirm decline by the approving client-admin/store-admin. Same

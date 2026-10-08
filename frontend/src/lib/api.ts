@@ -76,6 +76,56 @@ export interface UpdateOrderInput {
   shipping_client_address_id?: string | null;
 }
 
+export interface ApprovalBatchOrder {
+  id: string;
+  reference: string | null;
+  store_id: string;
+  store_name: string | null;
+  store_number: string | null;
+  status: string;
+  line_count: number;
+  total_quantity: number;
+}
+
+interface ApprovalApprover {
+  id: string;
+  email: string;
+  full_name: string | null;
+}
+
+export interface ApprovalBatchSummary {
+  id: string;
+  subject: string;
+  approved_at: string;
+  time: string;
+  date: string;
+  timezone: string;
+  approved_by: ApprovalApprover | null;
+  confirmed_count: number;
+  skipped_count: number;
+  email_status: 'pending' | 'sent' | 'failed' | 'not_configured';
+}
+
+export interface ApprovalBatchDetail {
+  id: string;
+  subject: string;
+  approved_at: string;
+  time: string;
+  date: string;
+  timezone: string;
+  approved_by: ApprovalApprover | null;
+  confirmed_count: number;
+  skipped: { id: string; reason: string }[];
+  orders: ApprovalBatchOrder[];
+  // Staff also get recipients/error; everyone else just the status.
+  email: { status: ApprovalBatchSummary['email_status']; recipients?: string[]; error?: string | null };
+}
+
+export const approvalBatchesApi = {
+  list: () => request<{ batches: ApprovalBatchSummary[] }>('GET', '/approval-batches'),
+  get: (id: string) => request<ApprovalBatchDetail>('GET', `/approval-batches/${id}`),
+};
+
 export const ordersApi = {
   create: (input: CreateOrderInput) => request<Order>('POST', '/orders', input),
   update: (id: string, input: UpdateOrderInput) => request<Order>('PATCH', `/orders/${id}`, input),
@@ -91,7 +141,7 @@ export const ordersApi = {
   remove: (id: string) => request<void>('DELETE', `/orders/${id}`),
   confirm: (id: string) => request<Order>('POST', `/orders/${id}/confirm`),
   bulkConfirm: (orderIds: string[]) =>
-    request<{ confirmed: Order[]; skipped: { id: string; reason: string }[]; not_found: string[] }>('POST', '/orders/bulk/confirm', {
+    request<{ confirmed: Order[]; skipped: { id: string; reason: string }[]; not_found: string[]; batch_id: string | null }>('POST', '/orders/bulk/confirm', {
       order_ids: orderIds,
     }),
   reject: (id: string, reason?: string) => request<Order>('POST', `/orders/${id}/reject`, { reason }),

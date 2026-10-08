@@ -10,6 +10,8 @@ import Cart from '@/pages/Cart';
 import Orders from '@/pages/Orders';
 import OrderDetail from '@/pages/OrderDetail';
 import Approvals from '@/pages/Approvals';
+import ApprovalHistory from '@/pages/ApprovalHistory';
+import ApprovalBatch from '@/pages/ApprovalBatch';
 import Account from '@/pages/Account';
 import ProductCuration from '@/pages/admin/ProductCuration';
 import ProductTaxonomy from '@/pages/admin/ProductTaxonomy';
@@ -34,6 +36,8 @@ export default function App() {
             <Route path="/orders" element={<Orders />} />
             <Route path="/orders/:orderId" element={<OrderDetail />} />
             <Route path="/approvals" element={<Approvals />} />
+            <Route path="/approvals/history" element={<ApprovalHistory />} />
+            <Route path="/approvals/batches/:batchId" element={<ApprovalBatch />} />
             <Route path="/account" element={<Account />} />
 
             <Route element={<StaffOnlyRoute />}>

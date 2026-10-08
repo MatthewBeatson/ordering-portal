@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ordersApi } from '@/lib/api';
 import { useAuth } from '@/lib/AuthContext';
@@ -14,6 +14,7 @@ export default function Approvals() {
   const { canApprove } = useAuth();
   const { data: stores } = useMyStores();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const storeName = (id: string) => stores?.find((s) => s.id === id)?.name ?? id;
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [bulkResult, setBulkResult] = React.useState<string | null>(null);
@@ -55,6 +56,11 @@ export default function Approvals() {
       if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
       setBulkResult(parts.join(', ') + '.');
       invalidate();
+      queryClient.invalidateQueries({ queryKey: ['approval-batches'] });
+      // Straight to the saved confirmation page for this approval. If the
+      // group couldn't be recorded (batch_id null) the orders are still
+      // confirmed, so just stay here with the summary line above.
+      if (result.batch_id) navigate(`/approvals/batches/${result.batch_id}`);
     },
   });
 
@@ -74,7 +80,12 @@ export default function Approvals() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Approvals</h1>
+        <div className="flex items-baseline gap-4">
+          <h1 className="text-lg font-semibold">Approvals</h1>
+          <Link to="/approvals/history" className="text-sm text-[var(--accent)] hover:underline">
+            Approval history
+          </Link>
+        </div>
         {selected.size > 0 && (
           <Button variant="primary" onClick={() => bulkConfirm.mutate()} disabled={bulkConfirm.isPending}>
             {bulkConfirm.isPending ? <Spinner className="h-4 w-4 border-white/30 border-t-white" /> : `Confirm ${selected.size} selected`}

@@ -9,6 +9,7 @@ const productTaxonomyRouter = require('./routes/productTaxonomy');
 const clientProductAttributesRouter = require('./routes/clientProductAttributes');
 const clientProductSkusRouter = require('./routes/clientProductSkus');
 const customGroupRulesRouter = require('./routes/customGroupRules');
+const approvalBatchesRouter = require('./routes/approvalBatches');
 const cin7WebhookRouter = require('./integrations/cin7/webhook');
 const { notFoundHandler, errorHandler } = require('./middleware/errorHandler');
 
@@ -29,6 +30,7 @@ function createApp() {
   app.use('/client-product-attributes', clientProductAttributesRouter);
   app.use('/client-product-skus', clientProductSkusRouter);
   app.use('/custom-group-rules', customGroupRulesRouter);
+  app.use('/approval-batches', approvalBatchesRouter);
   // Not under requireAuth -- Cin7 isn't a Supabase user. Authenticated
   // via a bearer token instead, checked inside the router itself.
   app.use('/webhooks/cin7', cin7WebhookRouter);
