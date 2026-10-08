@@ -21,6 +21,8 @@ function EmailNotice({ email }: { email: ApprovalBatchDetail['email'] }) {
       );
     case 'not_configured':
       return <Badge tone="muted">No email sent (email isn't set up yet)</Badge>;
+    case 'skipped':
+      return <Badge tone="muted">No email sent (single-order emails are switched off)</Badge>;
     default:
       return <Badge tone="warning">Email notification sending</Badge>;
   }
@@ -78,6 +80,7 @@ export default function ApprovalBatch() {
       <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 p-4 text-sm">
         <div>
           <span className="font-semibold">{data.confirmed_count}</span> order{data.confirmed_count === 1 ? '' : 's'} approved
+          {data.kind === 'single' && <span className="text-[var(--muted-foreground)]"> (single order)</span>}
         </div>
         <div>
           <span className="font-semibold">{totalQty}</span> units{data.orders.length < data.confirmed_count ? ' in your stores' : ' in total'}

@@ -40,6 +40,7 @@ export default function ApprovalHistory() {
               <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
                 <th className="px-4 py-2 font-medium">Approved</th>
                 <th className="px-2 py-2 font-medium">By</th>
+                <th className="px-2 py-2 font-medium">Type</th>
                 <th className="px-2 py-2 text-right font-medium">Orders</th>
                 <th className="px-4 py-2 font-medium">Email</th>
               </tr>
@@ -53,6 +54,7 @@ export default function ApprovalHistory() {
                     </Link>
                   </td>
                   <td className="px-2 py-2">{b.approved_by?.full_name || b.approved_by?.email || '—'}</td>
+                  <td className="px-2 py-2 text-[var(--muted-foreground)]">{b.kind === 'single' ? 'Single order' : 'Bulk'}</td>
                   <td className="px-2 py-2 text-right">
                     {b.confirmed_count}
                     {b.skipped_count > 0 && <span className="text-xs text-[var(--muted-foreground)]"> (+{b.skipped_count} skipped)</span>}

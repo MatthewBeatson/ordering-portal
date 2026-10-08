@@ -116,7 +116,7 @@ function renderEmail({ batch, approver, orders }) {
     <p style="margin:0 0 16px;color:#6b7280;font-size:14px">${esc(time)} on ${esc(date)} (${esc(tz)})</p>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.5">
       <strong>${esc(approverName)}</strong> approved <strong>${orders.length} order${orders.length === 1 ? '' : 's'}</strong>
-      (${totalQty} units in total) as one group.${skippedCount > 0 ? ` ${skippedCount} selected order${skippedCount === 1 ? ' was' : 's were'} not approved.` : ''}
+      (${totalQty} unit${totalQty === 1 ? '' : 's'}${orders.length > 1 ? ' in total) as one group' : ')'}.${skippedCount > 0 ? ` ${skippedCount} selected order${skippedCount === 1 ? ' was' : 's were'} not approved.` : ''}
     </p>
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
       <thead><tr style="text-align:left;color:#6b7280">
@@ -135,7 +135,7 @@ function renderEmail({ batch, approver, orders }) {
   const text = [
     `Orders approved - ${time} on ${date} (${tz})`,
     '',
-    `${approverName} approved ${orders.length} order${orders.length === 1 ? '' : 's'} (${totalQty} units) as one group.`,
+    `${approverName} approved ${orders.length} order${orders.length === 1 ? '' : 's'} (${totalQty} unit${totalQty === 1 ? '' : 's'})${orders.length > 1 ? ' as one group' : ''}.`,
     skippedCount > 0 ? `${skippedCount} selected order(s) were not approved.` : null,
     '',
     ...orders.map((o) => `- ${o.reference || o.id.slice(0, 8)} | ${storeLabel(o)} | ${o.line_count} lines | qty ${o.total_quantity}`),
@@ -148,26 +148,49 @@ function renderEmail({ batch, approver, orders }) {
   return { subject, html, text };
 }
 
-function notifyRecipients(approverEmail) {
+// The approver plus the shared APPROVAL_NOTIFY_EMAILS list. For single-order
+// approvals, anyone who is a portal user with "single-order emails" switched
+// off (Account settings, user_preferences.notify_single_approval_emails) is
+// dropped; addresses that aren't portal users (e.g. a shared mailbox) can't
+// opt out, so they always stay. Bulk-approval emails ignore the setting.
+async function notifyRecipients(req, kind) {
   const extra = (process.env.APPROVAL_NOTIFY_EMAILS || '')
     .split(',')
     .map((e) => e.trim())
     .filter(Boolean);
-  const all = [approverEmail, ...extra].filter(Boolean).map((e) => e.toLowerCase());
-  return [...new Set(all)];
+  const all = [...new Set([req.user.email, ...extra].filter(Boolean).map((e) => e.toLowerCase()))];
+  if (kind !== 'single') return all;
+
+  const { data: users, error: usersErr } = await supabaseAdmin.from('users').select('id, email').in('email', all);
+  if (usersErr) throw new Error(usersErr.message);
+  const matched = users || [];
+  if (matched.length === 0) return all;
+
+  const { data: prefs, error: prefsErr } = await supabaseAdmin
+    .from('user_preferences')
+    .select('user_id')
+    .in('user_id', matched.map((u) => u.id))
+    .eq('notify_single_approval_emails', false);
+  if (prefsErr) throw new Error(prefsErr.message);
+
+  const optedOutEmails = new Set(
+    matched.filter((u) => (prefs || []).some((p) => p.user_id === u.id)).map((u) => String(u.email).toLowerCase())
+  );
+  return all.filter((e) => !optedOutEmails.has(e));
 }
 
-// Called by orders.bulkConfirm right after the loop. Never throws: the orders
-// are already confirmed (and synced to Cin7) at this point, so a failure to
-// record the group or send the email must not turn the approval into an error.
-// Returns the batch id, or null if the batch couldn't be recorded.
-async function recordBulkApproval(req, confirmedOrderIds, skipped) {
+// Called by orders.bulkConfirm (kind 'bulk') and orders.confirmOrder (kind
+// 'single') right after the orders are confirmed. Never throws: the orders are
+// already confirmed (and synced to Cin7) at this point, so a failure to record
+// the approval or send the email must not turn it into an error. Returns the
+// batch id, or null if it couldn't be recorded.
+async function recordApproval(req, confirmedOrderIds, skipped, { kind = 'bulk' } = {}) {
   if (confirmedOrderIds.length === 0) return null;
 
   try {
     const { data: batch, error } = await supabaseAdmin
       .from('approval_batches')
-      .insert({ approved_by: req.user.id, confirmed_count: confirmedOrderIds.length, skipped })
+      .insert({ approved_by: req.user.id, confirmed_count: confirmedOrderIds.length, skipped, kind })
       .select()
       .single();
     if (error) throw new Error(error.message);
@@ -175,11 +198,16 @@ async function recordBulkApproval(req, confirmedOrderIds, skipped) {
     const { error: linkErr } = await supabaseAdmin.from('orders').update({ approval_batch_id: batch.id }).in('id', confirmedOrderIds);
     if (linkErr) throw new Error(linkErr.message);
 
-    const recipients = notifyRecipients(req.user.email);
+    let recipients = [];
     let emailResult;
     try {
-      const detail = await loadBatchDetail(batch.id);
-      emailResult = await sendEmail({ to: recipients, ...renderEmail(detail) });
+      recipients = await notifyRecipients(req, kind);
+      if (recipients.length === 0) {
+        emailResult = { status: 'skipped' };
+      } else {
+        const detail = await loadBatchDetail(batch.id);
+        emailResult = await sendEmail({ to: recipients, ...renderEmail(detail) });
+      }
     } catch (err) {
       emailResult = { status: 'failed', error: err.message };
     }
@@ -192,7 +220,7 @@ async function recordBulkApproval(req, confirmedOrderIds, skipped) {
     if (emailResult.status === 'failed') console.error('Approval email failed:', emailResult.error);
     return batch.id;
   } catch (err) {
-    console.error('Failed to record bulk approval batch:', err.message);
+    console.error('Failed to record approval batch:', err.message);
     return null;
   }
 }
@@ -206,6 +234,7 @@ function toApiShape(req, { batch, approver, orders }) {
   const visibleOrders = orders.filter((o) => canViewOrder(req, o));
   return {
     id: batch.id,
+    kind: batch.kind,
     subject: batchSubject(batch.approved_at),
     approved_at: batch.approved_at,
     ...(() => {
@@ -260,7 +289,7 @@ async function listBatches(req) {
     if (batchIds.length === 0) return { batches: [] };
   }
 
-  let query = supabaseAdmin.from('approval_batches').select('id, approved_at, approved_by, confirmed_count, skipped, email_status').order('approved_at', { ascending: false }).limit(LIMIT);
+  let query = supabaseAdmin.from('approval_batches').select('id, kind, approved_at, approved_by, confirmed_count, skipped, email_status').order('approved_at', { ascending: false }).limit(LIMIT);
   if (batchIds) query = query.in('id', batchIds);
   const { data, error } = await query;
   if (error) throw new ApiError(500, 'Failed to list approvals', error.message);
@@ -277,6 +306,7 @@ async function listBatches(req) {
       const a = approverById.get(b.approved_by);
       return {
         id: b.id,
+        kind: b.kind,
         subject: batchSubject(b.approved_at),
         approved_at: b.approved_at,
         time,
@@ -291,4 +321,4 @@ async function listBatches(req) {
   };
 }
 
-module.exports = { recordBulkApproval, getBatch, listBatches, batchSubject, renderEmail, formatBatchTime };
+module.exports = { recordApproval, getBatch, listBatches, batchSubject, renderEmail, formatBatchTime };

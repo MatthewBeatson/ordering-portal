@@ -95,6 +95,7 @@ interface ApprovalApprover {
 
 export interface ApprovalBatchSummary {
   id: string;
+  kind: 'bulk' | 'single';
   subject: string;
   approved_at: string;
   time: string;
@@ -103,11 +104,12 @@ export interface ApprovalBatchSummary {
   approved_by: ApprovalApprover | null;
   confirmed_count: number;
   skipped_count: number;
-  email_status: 'pending' | 'sent' | 'failed' | 'not_configured';
+  email_status: 'pending' | 'sent' | 'failed' | 'not_configured' | 'skipped';
 }
 
 export interface ApprovalBatchDetail {
   id: string;
+  kind: 'bulk' | 'single';
   subject: string;
   approved_at: string;
   time: string;

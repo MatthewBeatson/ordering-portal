@@ -2,7 +2,7 @@ const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
 const { syncOrderToCin7 } = require('../integrations/cin7/sync');
 const cin7 = require('../integrations/cin7/client');
-const { recordBulkApproval } = require('./approvalBatches');
+const { recordApproval } = require('./approvalBatches');
 
 // pending -> confirmed -> in_progress -> shipped -> delivered, with
 // 'rejected' as a pre-confirm terminal state. 'in_progress' is entered
@@ -477,6 +477,12 @@ async function confirmOrder(req, orderId) {
   await logEvent(orderId, req.user.id, 'confirmed', null);
 
   const synced = await syncOrderToCin7(updated);
+
+  // Record + email this approval in the background -- the caller (often
+  // working through a list one order at a time) shouldn't wait on the email
+  // provider. recordApproval never throws or rejects.
+  recordApproval(req, [orderId], [], { kind: 'single' });
+
   return sanitizeOrder(synced || updated, req.roles.isPortalAdmin);
 }
 
@@ -529,11 +535,12 @@ async function bulkConfirm(req) {
   }
 
   // Saves this approval as a group and sends the notification email. Never
-  // throws -- see approvalBatches.recordBulkApproval.
-  const batchId = await recordBulkApproval(
+  // throws -- see approvalBatches.recordApproval.
+  const batchId = await recordApproval(
     req,
     confirmed.map((o) => o.id),
-    skipped
+    skipped,
+    { kind: 'bulk' }
   );
 
   return { confirmed, skipped, not_found: notFound, batch_id: batchId };

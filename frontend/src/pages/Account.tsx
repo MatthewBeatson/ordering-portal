@@ -64,6 +64,61 @@ function ImageSizeScopeSetting() {
   );
 }
 
+// Per-user switch for the notification email sent when ONE order is approved
+// on its own (user_preferences.notify_single_approval_emails, 038). Bulk
+// approvals always email regardless. Default on when no preference row exists.
+function SingleApprovalEmailSetting() {
+  const { session } = useAuth();
+  const userId = session?.user.id;
+  const queryClient = useQueryClient();
+
+  const { data: enabled, isLoading } = useQuery({
+    queryKey: ['notify-single-approval-emails', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('notify_single_approval_emails')
+        .eq('user_id', userId!)
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      return data?.notify_single_approval_emails ?? true;
+    },
+  });
+
+  const save = useMutation({
+    mutationFn: async (value: boolean) => {
+      const { error } = await supabase
+        .from('user_preferences')
+        .upsert({ user_id: userId!, notify_single_approval_emails: value, updated_at: new Date().toISOString() });
+      if (error) throw new Error(error.message);
+      return value;
+    },
+    onSuccess: (value) => queryClient.setQueryData(['notify-single-approval-emails', userId], value),
+  });
+
+  return (
+    <Card className="p-4">
+      <div className="mb-1 text-sm font-medium">Single-order approval emails</div>
+      <p className="mb-3 text-xs text-[var(--muted-foreground)]">
+        When you approve a single order, send an email notification with a link to the saved approval. Approving several orders at once always sends
+        an email.
+      </p>
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={enabled ?? true}
+          disabled={isLoading || save.isPending}
+          onChange={(e) => save.mutate(e.target.checked)}
+        />
+        <span className="text-sm">Email me when a single order is approved</span>
+        {save.isPending && <Spinner className="h-3.5 w-3.5" />}
+      </label>
+      {save.isError && <p className="mt-2 text-sm text-[var(--danger)]">Couldn't save: {(save.error as Error).message}</p>}
+    </Card>
+  );
+}
+
 // Lets a signed-in user set their own password without the emailed
 // "Forgot password?" round trip (which is limited by Supabase's low default
 // email quota). No current-password prompt: re-authenticating with
@@ -148,7 +203,7 @@ function ChangePasswordSetting() {
 // several stores, each needing its own number.
 export default function Account() {
   const queryClient = useQueryClient();
-  const { isPortalAdmin } = useAuth();
+  const { isPortalAdmin, clientRoles } = useAuth();
 
   const { data: clientsData, isLoading: clientsLoading, error: clientsError } = useQuery({
     queryKey: ['manageable-clients'],
@@ -193,6 +248,10 @@ export default function Account() {
           section below (empty for a plain buyer with no client to
           manage) -- the image-size toggle applies to every role. */}
       <ImageSizeScopeSetting />
+
+      {/* Only staff and client admins can approve from this page's audience;
+          other roles never reach it, but keep the card honest anyway. */}
+      {(isPortalAdmin || clientRoles.length > 0) && <SingleApprovalEmailSetting />}
 
       <ChangePasswordSetting />
 
