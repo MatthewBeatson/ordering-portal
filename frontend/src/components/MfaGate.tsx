@@ -7,10 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 
-// Blocking gate for Shonrei staff (is_portal_admin) between login and
-// the app shell -- enforces the weekly TOTP requirement. Never applies
-// to buyer/store_admin/client_admin accounts (mfaRequired stays null
-// for them, see AuthContext.resolveRoles). Sits inside ProtectedRoute
+// Blocking gate for Shonrei staff (is_portal_admin) and client admins
+// between login and the app shell -- enforces the weekly TOTP
+// requirement. Never applies to buyer/store_admin accounts (mfaRequired
+// stays null for them, see AuthContext.resolveRoles). Sits inside ProtectedRoute
 // but outside AppShell in App.tsx, so it only ever runs for an already
 // -authenticated session.
 export function MfaGate() {
@@ -73,7 +73,7 @@ function MfaEnroll() {
     <>
       <h1 className="mb-1 text-lg font-semibold">Set up two-factor authentication</h1>
       <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-        Required for Shonrei staff accounts. Scan this with an authenticator app (Google Authenticator, Authy, 1Password, etc.).
+        Required for admin accounts. Scan this with an authenticator app (Google Authenticator, Authy, 1Password, etc.).
       </p>
 
       {qrCode ? (
@@ -153,7 +153,7 @@ function MfaChallenge() {
     <>
       <h1 className="mb-1 text-lg font-semibold">Re-verify your 2FA code</h1>
       <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-        Shonrei staff accounts re-confirm 2FA weekly. Enter the current code from your authenticator app.
+        Admin accounts re-confirm 2FA weekly. Enter the current code from your authenticator app.
       </p>
 
       {loading && !factorId ? (

@@ -29,7 +29,7 @@ interface AuthState {
   canApprove: (storeId: string) => boolean;
   signOut: () => Promise<void>;
   refreshRoles: () => Promise<void>;
-  /** Staff-only (is_portal_admin). Weekly TOTP requirement -- see backend/src/lib/mfa.js for the authoritative check this mirrors. */
+  /** Staff (is_portal_admin) and client admins only. Weekly TOTP requirement -- see backend/src/lib/mfa.js for the authoritative check this mirrors. */
   mfaRequired: MfaRequiredCode | null;
   /** Re-checks MFA status after a successful enroll/challenge, clearing mfaRequired if satisfied. */
   refreshMfaStatus: () => Promise<void>;
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [cartGroupMode, setCartGroupModeState] = React.useState<GroupMode>('display');
   const [orderDetailGroupMode, setOrderDetailGroupModeState] = React.useState<GroupMode>('display');
 
-  // Proactive check, only meaningful for staff -- best-effort: Supabase's
+  // Proactive check, only meaningful for staff and client admins -- best-effort: Supabase's
   // self-listFactors() doesn't reliably surface last_challenged_at, so
   // this can only reliably detect "never enrolled", not "enrolled but
   // stale". Staleness is still caught for real by the reactive path
@@ -176,7 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCompanyName(null);
     }
 
-    if (admin) {
+    if (admin || clients.length > 0) {
       await checkMfaStatus();
     } else {
       setMfaRequired(null);

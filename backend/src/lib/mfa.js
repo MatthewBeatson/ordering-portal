@@ -1,8 +1,9 @@
 const { supabaseAdmin } = require('../config/supabase');
 
-// Weekly TOTP re-verification for Shonrei staff (is_portal_admin / by
-// extension is_super_admin, since super_admin implies portal_admin —
-// see services/staff.js). Client accounts are never subject to this.
+// Weekly TOTP re-verification for admin-level accounts: Shonrei staff
+// (is_portal_admin / by extension is_super_admin, since super_admin implies
+// portal_admin — see services/staff.js) and client admins (any
+// user_client_roles row). Buyers and store admins are never subject to this.
 //
 // Deliberately reuses Supabase Auth's own MFA state (auth.mfa_factors,
 // via the Admin API's listFactors) rather than tracking a parallel
@@ -11,10 +12,10 @@ const { supabaseAdmin } = require('../config/supabase');
 // mfa.verify() call, so there's nothing for us to keep in sync.
 const REVERIFY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
 
-async function checkStaffMfa(userId) {
+async function checkAdminMfa(userId) {
   const { data, error } = await supabaseAdmin.auth.admin.mfa.listFactors({ userId });
   if (error) {
-    // Fail closed -- if we can't determine MFA state for a staff
+    // Fail closed -- if we can't determine MFA state for an admin
     // account, don't silently let the request through.
     return { ok: false, code: 'MFA_CHECK_FAILED', message: 'Could not verify 2FA status' };
   }
@@ -22,7 +23,7 @@ async function checkStaffMfa(userId) {
   const verifiedTotp = (data?.factors || []).find((f) => f.factor_type === 'totp' && f.status === 'verified');
 
   if (!verifiedTotp) {
-    return { ok: false, code: 'MFA_ENROLLMENT_REQUIRED', message: 'Two-factor authentication is required for Shonrei staff accounts' };
+    return { ok: false, code: 'MFA_ENROLLMENT_REQUIRED', message: 'Two-factor authentication is required for admin accounts' };
   }
 
   const lastChallenged = verifiedTotp.last_challenged_at ? new Date(verifiedTotp.last_challenged_at).getTime() : 0;
@@ -33,4 +34,4 @@ async function checkStaffMfa(userId) {
   return { ok: true };
 }
 
-module.exports = { checkStaffMfa };
+module.exports = { checkAdminMfa };

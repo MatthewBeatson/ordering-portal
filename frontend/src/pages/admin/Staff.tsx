@@ -53,7 +53,7 @@ export default function Staff() {
         <p className="text-sm text-[var(--muted-foreground)]">
           Grant or revoke Shonrei admin and super-admin access. Only people who already have some portal access show up
           here -- onboarding someone brand new still needs the usual setup step first. Staff accounts (admin and super
-          admin) must set up two-factor authentication and re-confirm it weekly.
+          admin) and client admins must set up two-factor authentication and re-confirm it weekly.
         </p>
       </div>
 
@@ -131,7 +131,7 @@ function StaffRow({
       </td>
       <td className="px-4 py-2 text-right">
         <div className="flex justify-end gap-2">
-          {member.is_portal_admin && member.mfa_enrolled && (
+          {member.mfa_enrolled && (
             <Button
               size="sm"
               variant="ghost"

@@ -33,12 +33,16 @@ async function listStaff(req) {
     .order('email');
   if (error) throw new ApiError(500, 'Failed to list staff', error.message);
 
-  // Attach 2FA status for staff rows only -- client/buyer rows never
-  // go through the weekly-MFA check, so their status is irrelevant
-  // noise on this screen.
+  // Attach 2FA status for staff and client-admin rows -- the two groups
+  // subject to the weekly-MFA check. Buyer/store-admin rows never go
+  // through it, so their status would be irrelevant noise on this screen.
+  const { data: clientAdminRows, error: caErr } = await supabaseAdmin.from('user_client_roles').select('user_id');
+  if (caErr) throw new ApiError(500, 'Failed to list client admins', caErr.message);
+  const clientAdminIds = new Set((clientAdminRows || []).map((r) => r.user_id));
+
   const withMfaStatus = await Promise.all(
     (data || []).map(async (row) => {
-      if (!row.is_portal_admin) return { ...row, mfa_enrolled: null };
+      if (!row.is_portal_admin && !clientAdminIds.has(row.id)) return { ...row, mfa_enrolled: null };
       const { data: factorData } = await supabaseAdmin.auth.admin.mfa.listFactors({ userId: row.id });
       const verified = (factorData?.factors || []).some((f) => f.factor_type === 'totp' && f.status === 'verified');
       return { ...row, mfa_enrolled: verified };
