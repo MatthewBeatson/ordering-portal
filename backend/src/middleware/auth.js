@@ -48,12 +48,15 @@ async function requireAuth(req, res, next) {
     const isPortalAdmin = userRow?.is_portal_admin === true;
     const isSuperAdmin = userRow?.is_super_admin === true;
 
-    // Weekly 2FA requirement for admin-level accounts: staff (is_portal_admin
+    // 2FA requirement for admin-level accounts: staff (is_portal_admin
     // covers both admin and super_admin, since super_admin implies
-    // portal_admin -- see services/staff.js) and client admins (any
-    // user_client_roles row). Never applies to buyers or store admins.
+    // portal_admin -- see services/staff.js) re-verify weekly; client
+    // admins (any user_client_roles row) every two weeks. Staff and client
+    // roles are mutually exclusive (020_staff_client_mutual_exclusion.sql),
+    // so isPortalAdmin alone picks the interval. Never applies to buyers or
+    // store admins.
     if (isPortalAdmin || (clientRoles || []).length > 0) {
-      const mfaCheck = await checkAdminMfa(user.id);
+      const mfaCheck = await checkAdminMfa(user.id, { isStaff: isPortalAdmin });
       if (!mfaCheck.ok) {
         throw new ApiError(403, mfaCheck.message, { code: mfaCheck.code });
       }

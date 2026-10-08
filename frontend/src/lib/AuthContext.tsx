@@ -4,7 +4,9 @@ import { supabase } from './supabase';
 import { setMfaRequiredHandler, type MfaRequiredCode } from './mfaSignal';
 import type { GroupMode } from './groupProducts';
 
-const MFA_REVERIFY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STAFF_MFA_REVERIFY_INTERVAL_MS = 7 * DAY_MS;
+const CLIENT_ADMIN_MFA_REVERIFY_INTERVAL_MS = 14 * DAY_MS;
 
 interface StoreRole {
   store_id: string;
@@ -29,7 +31,7 @@ interface AuthState {
   canApprove: (storeId: string) => boolean;
   signOut: () => Promise<void>;
   refreshRoles: () => Promise<void>;
-  /** Staff (is_portal_admin) and client admins only. Weekly TOTP requirement -- see backend/src/lib/mfa.js for the authoritative check this mirrors. */
+  /** Staff (is_portal_admin) and client admins only. Periodic TOTP requirement (weekly for staff, every 2 weeks for client admins) -- see backend/src/lib/mfa.js for the authoritative check this mirrors. */
   mfaRequired: MfaRequiredCode | null;
   /** Re-checks MFA status after a successful enroll/challenge, clearing mfaRequired if satisfied. */
   refreshMfaStatus: () => Promise<void>;
@@ -83,7 +85,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // authoritative check either way -- this just avoids a guaranteed
   // round-trip to the backend before showing the gate when we can tell
   // enrollment is missing outright.
-  const checkMfaStatus = React.useCallback(async () => {
+  const checkMfaStatus = React.useCallback(async (isStaff: boolean) => {
+    const reverifyIntervalMs = isStaff ? STAFF_MFA_REVERIFY_INTERVAL_MS : CLIENT_ADMIN_MFA_REVERIFY_INTERVAL_MS;
     const { data } = await supabase.auth.mfa.listFactors();
     const verifiedTotp = data?.totp?.[0] as { last_challenged_at?: string } | undefined;
 
@@ -93,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (verifiedTotp.last_challenged_at) {
       const staleMs = Date.now() - new Date(verifiedTotp.last_challenged_at).getTime();
-      if (staleMs > MFA_REVERIFY_INTERVAL_MS) {
+      if (staleMs > reverifyIntervalMs) {
         setMfaRequired('MFA_REVERIFY_REQUIRED');
         return;
       }
@@ -177,7 +180,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (admin || clients.length > 0) {
-      await checkMfaStatus();
+      await checkMfaStatus(admin);
     } else {
       setMfaRequired(null);
     }
@@ -239,8 +242,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshMfaStatus = React.useCallback(async () => {
-    await checkMfaStatus();
-  }, [checkMfaStatus]);
+    await checkMfaStatus(isPortalAdmin);
+  }, [checkMfaStatus, isPortalAdmin]);
 
   // Optimistic: updates immediately so the toggle feels instant, then
   // persists in the background. Best-effort -- if the upsert fails the

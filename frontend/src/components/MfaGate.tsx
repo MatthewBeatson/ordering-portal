@@ -153,7 +153,7 @@ function MfaChallenge() {
     <>
       <h1 className="mb-1 text-lg font-semibold">Re-verify your 2FA code</h1>
       <p className="mb-4 text-sm text-[var(--muted-foreground)]">
-        Admin accounts re-confirm 2FA weekly. Enter the current code from your authenticator app.
+        Admin accounts periodically re-confirm 2FA. Enter the current code from your authenticator app.
       </p>
 
       {loading && !factorId ? (
