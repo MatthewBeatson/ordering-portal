@@ -58,8 +58,6 @@ export default function ApprovalBatch() {
     );
   }
 
-  const totalQty = data.orders.reduce((sum, o) => sum + o.total_quantity, 0);
-
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <Link to="/approvals/history" className="text-sm text-[var(--accent)] hover:underline">
@@ -81,9 +79,6 @@ export default function ApprovalBatch() {
         <div>
           <span className="font-semibold">{data.confirmed_count}</span> order{data.confirmed_count === 1 ? '' : 's'} approved
           {data.kind === 'single' && <span className="text-[var(--muted-foreground)]"> (single order)</span>}
-        </div>
-        <div>
-          <span className="font-semibold">{totalQty}</span> units{data.orders.length < data.confirmed_count ? ' in your stores' : ' in total'}
         </div>
         {data.skipped.length > 0 && (
           <div className="text-[var(--warning)]">

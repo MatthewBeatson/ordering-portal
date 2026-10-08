@@ -94,7 +94,8 @@ function renderEmail({ batch, approver, orders }) {
   const approverName = approver?.full_name || approver?.email || 'an approver';
   const skippedCount = Array.isArray(batch.skipped) ? batch.skipped.length : 0;
   const link = `${APP_BASE_URL()}/approvals/batches/${batch.id}`;
-  const totalQty = orders.reduce((s, o) => s + o.total_quantity, 0);
+  // Served from the frontend's public/ folder (emails can't embed local files).
+  const logoUrl = `${APP_BASE_URL()}/shonrei-logo.png`;
 
   const storeLabel = (o) => [o.store_number, o.store_name].filter(Boolean).join(' - ') || '—';
 
@@ -112,11 +113,19 @@ function renderEmail({ batch, approver, orders }) {
   const html = `<!doctype html>
 <html><body style="margin:0;padding:24px;background:#f6f6f4;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1f2937">
   <div style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px">
-    <h1 style="margin:0 0 4px;font-size:20px">Orders approved</h1>
-    <p style="margin:0 0 16px;color:#6b7280;font-size:14px">${esc(time)} on ${esc(date)} (${esc(tz)})</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px">
+      <tr>
+        <td style="vertical-align:top">
+          <h1 style="margin:0 0 4px;font-size:20px">Orders approved</h1>
+          <p style="margin:0;color:#6b7280;font-size:14px">${esc(time)} on ${esc(date)} (${esc(tz)})</p>
+        </td>
+        <td style="vertical-align:top;text-align:right;width:150px">
+          <img src="${esc(logoUrl)}" alt="Shonrei" width="140" height="24" style="display:inline-block;border:0;height:24px;width:140px">
+        </td>
+      </tr>
+    </table>
     <p style="margin:0 0 16px;font-size:14px;line-height:1.5">
-      <strong>${esc(approverName)}</strong> approved <strong>${orders.length} order${orders.length === 1 ? '' : 's'}</strong>
-      (${totalQty} unit${totalQty === 1 ? '' : 's'}${orders.length > 1 ? ' in total) as one group' : ')'}.${skippedCount > 0 ? ` ${skippedCount} selected order${skippedCount === 1 ? ' was' : 's were'} not approved.` : ''}
+      <strong>${esc(approverName)}</strong> approved <strong>${orders.length} order${orders.length === 1 ? '' : 's'}</strong>${orders.length > 1 ? ' as one group' : ''}.${skippedCount > 0 ? ` ${skippedCount} selected order${skippedCount === 1 ? ' was' : 's were'} not approved.` : ''}
     </p>
     <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
       <thead><tr style="text-align:left;color:#6b7280">
@@ -135,7 +144,7 @@ function renderEmail({ batch, approver, orders }) {
   const text = [
     `Orders approved - ${time} on ${date} (${tz})`,
     '',
-    `${approverName} approved ${orders.length} order${orders.length === 1 ? '' : 's'} (${totalQty} unit${totalQty === 1 ? '' : 's'})${orders.length > 1 ? ' as one group' : ''}.`,
+    `${approverName} approved ${orders.length} order${orders.length === 1 ? '' : 's'}${orders.length > 1 ? ' as one group' : ''}.`,
     skippedCount > 0 ? `${skippedCount} selected order(s) were not approved.` : null,
     '',
     ...orders.map((o) => `- ${o.reference || o.id.slice(0, 8)} | ${storeLabel(o)} | ${o.line_count} lines | qty ${o.total_quantity}`),
