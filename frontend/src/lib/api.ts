@@ -95,12 +95,11 @@ interface ApprovalApprover {
 
 export interface ApprovalBatchSummary {
   id: string;
+  ref: string;
   kind: 'bulk' | 'single';
   subject: string;
   approved_at: string;
-  time: string;
   date: string;
-  timezone: string;
   approved_by: ApprovalApprover | null;
   confirmed_count: number;
   skipped_count: number;
@@ -109,12 +108,11 @@ export interface ApprovalBatchSummary {
 
 export interface ApprovalBatchDetail {
   id: string;
+  ref: string;
   kind: 'bulk' | 'single';
   subject: string;
   approved_at: string;
-  time: string;
   date: string;
-  timezone: string;
   approved_by: ApprovalApprover | null;
   confirmed_count: number;
   skipped: { id: string; reason: string }[];

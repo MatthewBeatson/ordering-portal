@@ -69,8 +69,7 @@ export default function ApprovalBatch() {
         <div>
           <h1 className="text-lg font-semibold">{data.subject}</h1>
           <p className="text-sm text-[var(--muted-foreground)]">
-            Approved by {data.approved_by?.full_name || data.approved_by?.email || 'an approver'} at {data.time} on {data.date} ({data.timezone}, New
-            Zealand time)
+            {data.ref} &middot; Approved by {data.approved_by?.full_name || data.approved_by?.email || 'an approver'} on {data.date}
           </p>
         </div>
       </div>

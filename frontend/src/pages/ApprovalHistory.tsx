@@ -38,7 +38,8 @@ export default function ApprovalHistory() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--muted-foreground)]">
-                <th className="px-4 py-2 font-medium">Approved</th>
+                <th className="px-4 py-2 font-medium">Approval</th>
+                <th className="px-2 py-2 font-medium">Date</th>
                 <th className="px-2 py-2 font-medium">By</th>
                 <th className="px-2 py-2 font-medium">Type</th>
                 <th className="px-2 py-2 text-right font-medium">Orders</th>
@@ -50,9 +51,10 @@ export default function ApprovalHistory() {
                 <tr key={b.id} className="border-b border-[var(--border)] last:border-0 hover:bg-[var(--muted)]/50">
                   <td className="px-4 py-2">
                     <Link to={`/approvals/batches/${b.id}`} className="font-medium text-[var(--accent)] hover:underline">
-                      {b.time} on {b.date}
+                      {b.ref}
                     </Link>
                   </td>
+                  <td className="px-2 py-2">{b.date}</td>
                   <td className="px-2 py-2">{b.approved_by?.full_name || b.approved_by?.email || '—'}</td>
                   <td className="px-2 py-2 text-[var(--muted-foreground)]">{b.kind === 'single' ? 'Single order' : 'Bulk'}</td>
                   <td className="px-2 py-2 text-right">

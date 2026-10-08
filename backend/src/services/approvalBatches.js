@@ -10,30 +10,19 @@ const { sendEmail } = require('../lib/email');
 const NZ_TZ = 'Pacific/Auckland';
 const APP_BASE_URL = () => (process.env.APP_BASE_URL || 'https://orders.shonrei.com').replace(/\/$/, '');
 
-// "4:42 PM" / "9 October 2026" / "NZDT", always in NZ time regardless of the
-// server's own timezone (Render runs UTC).
-function formatBatchTime(iso) {
-  const parts = new Intl.DateTimeFormat('en-NZ', {
-    timeZone: NZ_TZ,
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    timeZoneName: 'short',
-  }).formatToParts(new Date(iso));
+// "9 October 2026", the NZ calendar date regardless of the server's own
+// timezone (Render runs UTC). Date only, deliberately: the people reading
+// these span NZ and Australia, so a clock time would just be misread.
+function formatBatchDate(iso) {
+  const parts = new Intl.DateTimeFormat('en-NZ', { timeZone: NZ_TZ, day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(new Date(iso));
   const get = (type) => parts.find((p) => p.type === type)?.value ?? '';
-  return {
-    time: `${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`,
-    date: `${get('day')} ${get('month')} ${get('year')}`,
-    tz: get('timeZoneName'),
-  };
+  return `${get('day')} ${get('month')} ${get('year')}`;
 }
 
-function batchSubject(iso) {
-  const { time, date } = formatBatchTime(iso);
-  return `Shonrei Orders Approved ${time} on ${date}`;
+// "Shonrei Orders Approved APR-00001 on 9 October 2026". The ref keeps two
+// approvals on the same day distinguishable in an inbox.
+function batchSubject(batch) {
+  return `Shonrei Orders Approved ${batch.ref} on ${formatBatchDate(batch.approved_at)}`;
 }
 
 function esc(s) {
@@ -89,8 +78,8 @@ async function loadBatchDetail(batchId) {
 }
 
 function renderEmail({ batch, approver, orders }) {
-  const subject = batchSubject(batch.approved_at);
-  const { time, date, tz } = formatBatchTime(batch.approved_at);
+  const subject = batchSubject(batch);
+  const date = formatBatchDate(batch.approved_at);
   const approverName = approver?.full_name || approver?.email || 'an approver';
   const skippedCount = Array.isArray(batch.skipped) ? batch.skipped.length : 0;
   const link = `${APP_BASE_URL()}/approvals/batches/${batch.id}`;
@@ -117,7 +106,7 @@ function renderEmail({ batch, approver, orders }) {
       <tr>
         <td style="vertical-align:top">
           <h1 style="margin:0 0 4px;font-size:20px">Orders approved</h1>
-          <p style="margin:0;color:#6b7280;font-size:14px">${esc(time)} on ${esc(date)} (${esc(tz)})</p>
+          <p style="margin:0;color:#6b7280;font-size:14px">${esc(batch.ref)} &middot; ${esc(date)}</p>
         </td>
         <td style="vertical-align:top;text-align:right;width:150px">
           <img src="${esc(logoUrl)}" alt="Shonrei" width="140" height="24" style="display:inline-block;border:0;height:24px;width:140px">
@@ -142,7 +131,7 @@ function renderEmail({ batch, approver, orders }) {
 </body></html>`;
 
   const text = [
-    `Orders approved - ${time} on ${date} (${tz})`,
+    `Orders approved - ${batch.ref} - ${date}`,
     '',
     `${approverName} approved ${orders.length} order${orders.length === 1 ? '' : 's'}${orders.length > 1 ? ' as one group' : ''}.`,
     skippedCount > 0 ? `${skippedCount} selected order(s) were not approved.` : null,
@@ -244,12 +233,10 @@ function toApiShape(req, { batch, approver, orders }) {
   return {
     id: batch.id,
     kind: batch.kind,
-    subject: batchSubject(batch.approved_at),
+    ref: batch.ref,
+    subject: batchSubject(batch),
     approved_at: batch.approved_at,
-    ...(() => {
-      const { time, date, tz } = formatBatchTime(batch.approved_at);
-      return { time, date, timezone: tz };
-    })(),
+    date: formatBatchDate(batch.approved_at),
     approved_by: approver ? { id: approver.id, email: approver.email, full_name: approver.full_name } : null,
     confirmed_count: batch.confirmed_count,
     skipped: Array.isArray(batch.skipped) ? batch.skipped : [],
@@ -298,7 +285,7 @@ async function listBatches(req) {
     if (batchIds.length === 0) return { batches: [] };
   }
 
-  let query = supabaseAdmin.from('approval_batches').select('id, kind, approved_at, approved_by, confirmed_count, skipped, email_status').order('approved_at', { ascending: false }).limit(LIMIT);
+  let query = supabaseAdmin.from('approval_batches').select('id, ref, kind, approved_at, approved_by, confirmed_count, skipped, email_status').order('approved_at', { ascending: false }).limit(LIMIT);
   if (batchIds) query = query.in('id', batchIds);
   const { data, error } = await query;
   if (error) throw new ApiError(500, 'Failed to list approvals', error.message);
@@ -311,16 +298,14 @@ async function listBatches(req) {
 
   return {
     batches: (data || []).map((b) => {
-      const { time, date, tz } = formatBatchTime(b.approved_at);
       const a = approverById.get(b.approved_by);
       return {
         id: b.id,
         kind: b.kind,
-        subject: batchSubject(b.approved_at),
+        ref: b.ref,
+        subject: batchSubject(b),
         approved_at: b.approved_at,
-        time,
-        date,
-        timezone: tz,
+        date: formatBatchDate(b.approved_at),
         approved_by: a ? { id: a.id, email: a.email, full_name: a.full_name } : null,
         confirmed_count: b.confirmed_count,
         skipped_count: Array.isArray(b.skipped) ? b.skipped.length : 0,
@@ -330,4 +315,4 @@ async function listBatches(req) {
   };
 }
 
-module.exports = { recordApproval, getBatch, listBatches, batchSubject, renderEmail, formatBatchTime };
+module.exports = { recordApproval, getBatch, listBatches, batchSubject, renderEmail, formatBatchDate };
