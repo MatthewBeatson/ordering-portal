@@ -8,6 +8,7 @@ const { sendEmail } = require('../lib/email');
 // permanent confirmation page.
 
 const NZ_TZ = 'Pacific/Auckland';
+const PLACEHOLDER_EMAIL = /@(test\.com|example\.(com|org|net)|[^@]+\.(test|invalid|example|localhost))$/i;
 const APP_BASE_URL = () => (process.env.APP_BASE_URL || 'https://orders.shonrei.com').replace(/\/$/, '');
 
 // "9 October 2026", the NZ calendar date regardless of the server's own
@@ -156,7 +157,10 @@ async function notifyRecipients(req, kind) {
     .split(',')
     .map((e) => e.trim())
     .filter(Boolean);
-  const all = [...new Set([req.user.email, ...extra].filter(Boolean).map((e) => e.toLowerCase()))];
+  // Placeholder addresses (the portal's test logins are @test.com, a real
+  // domain someone else owns) must never be emailed -- approval emails list
+  // order details, and would otherwise be delivered to a stranger.
+  const all = [...new Set([req.user.email, ...extra].filter(Boolean).map((e) => e.toLowerCase()))].filter((e) => !PLACEHOLDER_EMAIL.test(e));
   if (kind !== 'single') return all;
 
   const { data: users, error: usersErr } = await supabaseAdmin.from('users').select('id, email').in('email', all);
