@@ -203,8 +203,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
+      // A password change (Account page) fires USER_UPDATED. Roles can't have
+      // changed, and re-resolving them flips `loading` on, which remounts the
+      // current page and wipes its "Password updated" confirmation.
+      if (event === 'USER_UPDATED') return;
       if (newSession?.user) {
         setLoading(true);
         resolveRoles(newSession.user.id).finally(() => setLoading(false));
