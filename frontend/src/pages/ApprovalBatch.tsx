@@ -80,7 +80,7 @@ export default function ApprovalBatch() {
           <span className="font-semibold">{data.confirmed_count}</span> order{data.confirmed_count === 1 ? '' : 's'} approved
         </div>
         <div>
-          <span className="font-semibold">{totalQty}</span> units in total
+          <span className="font-semibold">{totalQty}</span> units{data.orders.length < data.confirmed_count ? ' in your stores' : ' in total'}
         </div>
         {data.skipped.length > 0 && (
           <div className="text-[var(--warning)]">
