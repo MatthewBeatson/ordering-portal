@@ -3,6 +3,8 @@ const { ApiError } = require('../lib/errors');
 const { syncOrderToCin7 } = require('../integrations/cin7/sync');
 const cin7 = require('../integrations/cin7/client');
 const { recordApproval } = require('./approvalBatches');
+const { notifyCancellationRequested } = require('./cancellationNotice');
+const { syncVoidedOrders, maybeSyncVoidedOrders } = require('../integrations/cin7/cancellationSync');
 
 // pending -> confirmed -> in_progress -> shipped -> delivered, with
 // 'rejected' as a pre-confirm terminal state. 'in_progress' is entered
@@ -296,6 +298,10 @@ async function updateOrder(req, orderId) {
 }
 
 async function listOrders(req) {
+  // Picks up orders voided in Cin7 since the last check (throttled,
+  // fire-and-forget -- this response doesn't wait on it).
+  maybeSyncVoidedOrders();
+
   const accessibleStoreIds = [...req.roles.accessibleStoreIds];
 
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
@@ -314,6 +320,10 @@ async function listOrders(req) {
 
   if (req.query.status) {
     query = query.eq('status', req.query.status);
+  }
+  // Orders a client has asked to cancel that staff haven't resolved yet.
+  if (req.query.cancellation === 'requested') {
+    query = query.eq('cancellation_status', 'requested');
   }
 
   const { data, error, count } = await query;
@@ -704,7 +714,23 @@ async function requestCancellation(req, orderId) {
 
   await logEvent(orderId, req.user.id, 'cancellation_requested', reason ? { reason } : null);
 
+  // Tell Shonrei in the background; never blocks or fails the request.
+  supabaseAdmin
+    .from('stores')
+    .select('store_number, name')
+    .eq('id', order.store_id)
+    .maybeSingle()
+    .then(({ data: store }) => notifyCancellationRequested({ order: updated, store, requesterEmail: req.user.email, reason }))
+    .catch((err) => console.error('Cancellation notice failed:', err.message));
+
   return sanitizeOrder(updated, req.roles.isPortalAdmin);
+}
+
+// Staff-only "Check Cin7 now": runs the voided-sale check immediately instead
+// of waiting for the throttled/timed runs.
+async function syncCancellations(req) {
+  requireStaff(req);
+  return syncVoidedOrders();
 }
 
 // Shonrei staff review of a cancellation request. Approving here only
@@ -767,6 +793,7 @@ module.exports = {
   markShipped,
   requestCancellation,
   resolveCancellation,
+  syncCancellations,
   deleteOrder,
   retrySync,
   bulkConfirm,

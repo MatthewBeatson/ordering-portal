@@ -129,9 +129,10 @@ export const approvalBatchesApi = {
 export const ordersApi = {
   create: (input: CreateOrderInput) => request<Order>('POST', '/orders', input),
   update: (id: string, input: UpdateOrderInput) => request<Order>('PATCH', `/orders/${id}`, input),
-  list: (params: { status?: string; limit?: number; offset?: number } = {}) => {
+  list: (params: { status?: string; cancellation?: 'requested'; limit?: number; offset?: number } = {}) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);
+    if (params.cancellation) qs.set('cancellation', params.cancellation);
     if (params.limit != null) qs.set('limit', String(params.limit));
     if (params.offset != null) qs.set('offset', String(params.offset));
     const q = qs.toString();
@@ -146,6 +147,10 @@ export const ordersApi = {
     }),
   reject: (id: string, reason?: string) => request<Order>('POST', `/orders/${id}/reject`, { reason }),
   requestCancellation: (id: string, reason?: string) => request<Order>('POST', `/orders/${id}/request-cancellation`, { reason }),
+  resolveCancellation: (id: string, approve: boolean) => request<Order>('POST', `/orders/${id}/resolve-cancellation`, { approve }),
+  // Staff: check Cin7 right now for orders voided there.
+  syncCancellations: () =>
+    request<{ checked: number; cancelled: { id: string; reference: string | null }[]; skipped?: string }>('POST', '/orders/sync-cancellations'),
   retrySync: (id: string) => request<Order>('POST', `/orders/${id}/retry-sync`),
 };
 

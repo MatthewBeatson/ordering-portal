@@ -34,6 +34,14 @@ router.post(
 );
 
 router.post(
+  '/sync-cancellations',
+  asyncHandler(async (req, res) => {
+    const result = await ordersService.syncCancellations(req);
+    res.json(result);
+  })
+);
+
+router.post(
   '/bulk/confirm',
   asyncHandler(async (req, res) => {
     const result = await ordersService.bulkConfirm(req);

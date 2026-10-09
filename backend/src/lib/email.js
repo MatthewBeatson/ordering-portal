@@ -11,11 +11,20 @@
 //
 // Never throws: a failed email must not undo whatever business action
 // triggered it.
-async function sendEmail({ to, subject, html, text }) {
+// Placeholder addresses (the portal's test logins are @test.com, a real domain
+// someone else owns) must never be emailed -- messages list order details and
+// would otherwise be delivered to a stranger. Filtered here so every caller is
+// covered.
+const PLACEHOLDER_EMAIL = /@(test\.com|example\.(com|org|net)|[^@]+\.(test|invalid|example|localhost))$/i;
+const isPlaceholderEmail = (email) => PLACEHOLDER_EMAIL.test(String(email));
+
+async function sendEmail({ to: requestedTo, subject, html, text }) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
   if (!apiKey || !from) return { status: 'not_configured' };
-  if (!Array.isArray(to) || to.length === 0) return { status: 'failed', error: 'No recipients' };
+  if (!Array.isArray(requestedTo) || requestedTo.length === 0) return { status: 'failed', error: 'No recipients' };
+  const to = requestedTo.filter((e) => !isPlaceholderEmail(e));
+  if (to.length === 0) return { status: 'skipped' };
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -34,4 +43,4 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
-module.exports = { sendEmail };
+module.exports = { sendEmail, isPlaceholderEmail };

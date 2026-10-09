@@ -13,6 +13,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   shipped: 'Shipped',
   delivered: 'Delivered',
   rejected: 'Rejected',
+  cancelled: 'Cancelled',
 };
 
 export const ORDER_STATUS_TONES: Record<OrderStatus, BadgeTone> = {
@@ -22,6 +23,7 @@ export const ORDER_STATUS_TONES: Record<OrderStatus, BadgeTone> = {
   shipped: 'success',
   delivered: 'teal',
   rejected: 'danger',
+  cancelled: 'muted',
 };
 
 export function OrderStatusBadge({ status }: { status: OrderStatus }) {

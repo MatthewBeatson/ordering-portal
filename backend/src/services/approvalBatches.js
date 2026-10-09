@@ -1,6 +1,6 @@
 const { supabaseAdmin } = require('../config/supabase');
 const { ApiError } = require('../lib/errors');
-const { sendEmail } = require('../lib/email');
+const { sendEmail, isPlaceholderEmail } = require('../lib/email');
 
 // A "bulk approval" = one click of "Confirm N selected" on the Approvals page.
 // Each is saved as an approval_batches row (037) so the approver and Shonrei
@@ -8,7 +8,6 @@ const { sendEmail } = require('../lib/email');
 // permanent confirmation page.
 
 const NZ_TZ = 'Pacific/Auckland';
-const PLACEHOLDER_EMAIL = /@(test\.com|example\.(com|org|net)|[^@]+\.(test|invalid|example|localhost))$/i;
 const APP_BASE_URL = () => (process.env.APP_BASE_URL || 'https://orders.shonrei.com').replace(/\/$/, '');
 
 // "9 October 2026", the NZ calendar date regardless of the server's own
@@ -160,7 +159,7 @@ async function notifyRecipients(req, kind) {
   // Placeholder addresses (the portal's test logins are @test.com, a real
   // domain someone else owns) must never be emailed -- approval emails list
   // order details, and would otherwise be delivered to a stranger.
-  const all = [...new Set([req.user.email, ...extra].filter(Boolean).map((e) => e.toLowerCase()))].filter((e) => !PLACEHOLDER_EMAIL.test(e));
+  const all = [...new Set([req.user.email, ...extra].filter(Boolean).map((e) => e.toLowerCase()))].filter((e) => !isPlaceholderEmail(e));
   if (kind !== 'single') return all;
 
   const { data: users, error: usersErr } = await supabaseAdmin.from('users').select('id, email').in('email', all);

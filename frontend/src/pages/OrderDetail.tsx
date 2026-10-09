@@ -63,6 +63,11 @@ export default function OrderDetail() {
     onSuccess: invalidate,
     onError: (err: Error) => setActionError(err.message),
   });
+  const resolveCancellation = useMutation({
+    mutationFn: (approve: boolean) => ordersApi.resolveCancellation(orderId!, approve),
+    onSuccess: invalidate,
+    onError: (err: Error) => setActionError(err.message),
+  });
   const retrySync = useMutation({
     mutationFn: () => ordersApi.retrySync(orderId!),
     onSuccess: invalidate,
@@ -114,7 +119,8 @@ export default function OrderDetail() {
   const hasPricing = (order.order_lines ?? []).some((l) => l.unit_price != null) && showPricing;
 
   const canCancelDirectly = order.status === 'pending' || order.status === 'confirmed';
-  const canRequestCancellation = order.status === 'in_progress' || order.status === 'shipped';
+  const canRequestCancellation =
+    (order.status === 'in_progress' || order.status === 'shipped') && order.cancellation_status !== 'requested' && order.cancellation_status !== 'approved';
   const canApproveThis = order.status === 'pending' && canApprove(order.store_id);
   const canEdit = order.status === 'pending';
 
@@ -275,6 +281,58 @@ export default function OrderDetail() {
         <Card className="flex items-center justify-end gap-3 px-4 py-2">
           <span className="text-sm font-medium">Total ({currency})</span>
           <span className="text-sm font-semibold tabular-nums">{money(total, currency)}</span>
+        </Card>
+      )}
+
+      {order.status === 'cancelled' && (
+        <Card className="p-4 text-sm">
+          <div className="font-medium">This order was cancelled</div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">It was voided in Cin7, so it has been moved to Cancelled automatically.</p>
+        </Card>
+      )}
+
+      {order.status !== 'cancelled' && order.cancellation_status === 'requested' && (
+        <Card className="p-4 text-sm">
+          <div className="font-medium">Cancellation requested</div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            Requested {dateTime(order.cancellation_requested_at)}
+            {order.cancellation_reason ? ` — "${order.cancellation_reason}"` : ''}
+          </p>
+          {isPortalAdmin ? (
+            <>
+              <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+                If you agree, approve it here, then void the Sale in Cin7. This order moves to Cancelled by itself once Cin7 shows it as voided.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" variant="primary" disabled={resolveCancellation.isPending} onClick={() => resolveCancellation.mutate(true)}>
+                  Approve request
+                </Button>
+                <Button size="sm" variant="secondary" disabled={resolveCancellation.isPending} onClick={() => resolveCancellation.mutate(false)}>
+                  Deny
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">Shonrei will review this request.</p>
+          )}
+        </Card>
+      )}
+
+      {order.status !== 'cancelled' && order.cancellation_status === 'approved' && (
+        <Card className="p-4 text-sm">
+          <div className="font-medium">Cancellation approved</div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            {isPortalAdmin
+              ? 'Void the Sale in Cin7 to finish. This order moves to Cancelled by itself once Cin7 shows it as voided.'
+              : 'Shonrei is cancelling this order. It will show as Cancelled shortly.'}
+          </p>
+        </Card>
+      )}
+
+      {order.status !== 'cancelled' && order.cancellation_status === 'denied' && (
+        <Card className="p-4 text-sm">
+          <div className="font-medium">Cancellation request declined</div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">The order stays active. Contact Shonrei if you need to discuss it.</p>
         </Card>
       )}
 

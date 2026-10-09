@@ -1,4 +1,4 @@
-export type OrderStatus = 'pending' | 'confirmed' | 'in_progress' | 'shipped' | 'delivered' | 'rejected';
+export type OrderStatus = 'pending' | 'confirmed' | 'in_progress' | 'shipped' | 'delivered' | 'rejected' | 'cancelled';
 
 export interface OrderLine {
   id: string;
@@ -28,6 +28,13 @@ export interface Order {
   reference: string | null;
   shipped_at: string | null;
   shipped_source: string | null;
+  // A client's request to cancel an order already synced to Cin7. 'approved'
+  // only means staff agreed -- the order becomes status 'cancelled' once Cin7
+  // shows the Sale as voided (backend cancellationSync.js).
+  cancellation_status: 'requested' | 'approved' | 'denied' | null;
+  cancellation_reason: string | null;
+  cancellation_requested_at: string | null;
+  cancellation_resolved_at: string | null;
   created_at: string;
   updated_at: string;
   // Per-order shipping address override (032) -- null means "use the
