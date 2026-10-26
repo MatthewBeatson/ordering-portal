@@ -67,6 +67,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [clientRoles, setClientRoles] = React.useState<ClientRole[]>([]);
   const [accessibleStoreIds, setAccessibleStoreIds] = React.useState<Set<string>>(new Set());
   const [mfaRequired, setMfaRequired] = React.useState<MfaRequiredCode | null>(null);
+  // The user whose roles are already loaded. Lets the auth listener tell a
+  // genuine sign-in apart from supabase-js re-announcing the SAME session.
+  const resolvedUserIdRef = React.useRef<string | null>(null);
   const [companyName, setCompanyName] = React.useState<string | null>(null);
   const [imageSizePreference, setImageSizePreferenceState] = React.useState<'hide' | 'small' | 'large'>('small');
   const [imageSizeScope, setImageSizeScopeState] = React.useState<'shared' | 'per_page'>('shared');
@@ -184,6 +187,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } else {
       setMfaRequired(null);
     }
+    resolvedUserIdRef.current = userId;
   }, [checkMfaStatus]);
 
   const refreshRoles = React.useCallback(async () => {
@@ -209,10 +213,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // changed, and re-resolving them flips `loading` on, which remounts the
       // current page and wipes its "Password updated" confirmation.
       if (event === 'USER_UPDATED') return;
+      // Coming back to this browser tab makes supabase-js re-announce the same
+      // session as SIGNED_IN (and a silent renewal fires TOKEN_REFRESHED).
+      // Reloading roles for the same, already-loaded user flips `loading` on,
+      // which unmounts the whole page and loses its scroll position, search and
+      // filters. A genuinely different user (or first load) still reloads.
+      if (
+        newSession?.user &&
+        newSession.user.id === resolvedUserIdRef.current &&
+        (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')
+      ) {
+        return;
+      }
       if (newSession?.user) {
         setLoading(true);
         resolveRoles(newSession.user.id).finally(() => setLoading(false));
       } else {
+        resolvedUserIdRef.current = null;
         setIsPortalAdmin(false);
         setIsSuperAdmin(false);
         setStoreRoles([]);

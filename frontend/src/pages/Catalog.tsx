@@ -32,6 +32,9 @@ import { Search, ShoppingCart } from 'lucide-react';
 type FacetKey = 'productType' | 'jewelleryType' | 'colour';
 type FacetRef = { id: string; name: string; display_order: number };
 
+// Products shown at first, and added by each "Load more" click.
+const PAGE_SIZE = 50;
+
 const FACETS: { key: FacetKey; label: string; getRef: (p: ProductRow) => FacetRef | null }[] = [
   { key: 'productType', label: 'Type', getRef: (p) => p.product_types },
   { key: 'jewelleryType', label: 'Jewellery held', getRef: (p) => p.product_jewellery_types },
@@ -253,6 +256,33 @@ export default function Catalog() {
     [filtered, groupMode, customRules]
   );
 
+  // Show the catalogue 50 products at a time (a client can have hundreds, which
+  // makes the page heavy: every thumbnail loads at once). Counted in rendered
+  // rows, walking groups/sub-groups in display order, so group headings stay
+  // intact and a group is simply cut off part-way until the next "Load more".
+  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
+  React.useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [search, groupMode, selectedDisplaySystemIdsKey, facetSelections, currentStore?.id]);
+
+  const totalRows = React.useMemo(() => groups.reduce((n, g) => n + g.subgroups.reduce((m, s) => m + s.rows.length, 0), 0), [groups]);
+  const visibleGroups = React.useMemo(() => {
+    let left = visibleCount;
+    const out: typeof groups = [];
+    for (const g of groups) {
+      if (left <= 0) break;
+      const subgroups: typeof g.subgroups = [];
+      for (const s of g.subgroups) {
+        if (left <= 0) break;
+        const rows = s.rows.slice(0, left);
+        left -= rows.length;
+        if (rows.length > 0) subgroups.push({ ...s, rows });
+      }
+      if (subgroups.length > 0) out.push({ ...g, subgroups });
+    }
+    return out;
+  }, [groups, visibleCount]);
+
   function handleAdd(p: ProductRow) {
     const quantity = quantities[p.id] ?? 1;
     if (quantity < 1) return;
@@ -394,7 +424,7 @@ export default function Catalog() {
         <Card className="p-6 text-sm text-[var(--muted-foreground)]">No products match your search.</Card>
       )}
 
-      {groups.map((group) => (
+      {visibleGroups.map((group) => (
         <Card key={group.key} className="overflow-hidden">
           <div className="border-b border-[var(--border)] bg-[var(--muted)] px-4 py-2 text-sm font-semibold">{group.label}</div>
           {group.subgroups.map((sub) => (
@@ -441,7 +471,6 @@ export default function Catalog() {
                           <td className="px-2 py-2 font-mono text-xs">{clientSku ?? <span className="text-[var(--muted-foreground)]">—</span>}</td>
                           <td className="px-2 py-2">
                             <div className="font-medium">{p.name}</div>
-                            {p.description && <div className="text-xs text-[var(--muted-foreground)] line-clamp-1">{p.description}</div>}
                           </td>
                           {tierNumber && showPricing && (
                             <td className="px-2 py-2 text-right tabular-nums">{money(price, currency)}</td>
@@ -471,6 +500,17 @@ export default function Catalog() {
           ))}
         </Card>
       ))}
+
+      {totalRows > visibleCount && (
+        <div className="flex flex-col items-center gap-1 pb-2">
+          <Button variant="secondary" onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}>
+            Load more
+          </Button>
+          <span className="text-xs text-[var(--muted-foreground)]">
+            Showing {Math.min(visibleCount, totalRows)} of {totalRows}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
